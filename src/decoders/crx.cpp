@@ -17,6 +17,7 @@ it under the terms of the one of two licenses as you choose:
  */
 
 #include "../../internal/libraw_cxx_defs.h"
+#include "../../internal/libraw_safe_math.h"
 
 #ifdef _abs
 #undef _abs
@@ -2004,11 +2005,20 @@ int crxMakeQStep(CrxImage *img, CrxTile *tile, int32_t *qpTable, uint32_t /*tota
   if (img->levels > 2)
     totalHeight += qpHeight8;
 
+  /* SECURITY FIX: Check for integer overflow in allocation size */
+  size_t alloc_size1 = safe_alloc_size_3(totalHeight, qpWidth, sizeof(uint32_t));
+  size_t alloc_size2 = safe_alloc_size(img->levels, sizeof(CrxQStep));
+  if (alloc_size1 == 0 || alloc_size2 == 0)
+    return -1;
+  size_t total_alloc;
+  if (safe_add_size_t(alloc_size1, alloc_size2, &total_alloc) != 0)
+    return -1;
+
   tile->qStep = (CrxQStep *)
 #ifdef LIBRAW_CR3_MEMPOOL
                       img->memmgr.
 #endif
-                  malloc(totalHeight * qpWidth * sizeof(uint32_t) + img->levels * sizeof(CrxQStep));
+                  malloc(total_alloc);
 
   if (!tile->qStep)
     return -1;
@@ -2253,20 +2263,34 @@ int crxReadSubbandHeaders(crx_data_header_t * /*hdr*/, CrxImage *img, CrxTile * 
 
 int crxReadImageHeaders(crx_data_header_t *hdr, CrxImage *img, uint8_t *mdatPtr, int32_t mdatHdrSize)
 {
-  int nTiles = img->tileRows * img->tileCols;
+  /* SECURITY FIX: Check for integer overflow in nTiles calculation */
+  int nTiles_check;
+  if (safe_mul_int(img->tileRows, img->tileCols, &nTiles_check) != 0)
+    return -1;
+  int nTiles = nTiles_check;
 
-  if (!nTiles)
+  if (!nTiles || nTiles < 0)
     return -1;
 
   if (!img->tiles)
   {
+      /* SECURITY FIX: Check for integer overflow in allocation sizes */
+      size_t size1 = safe_alloc_size((size_t)nTiles, sizeof(CrxTile));
+      size_t size2 = safe_alloc_size_3((size_t)nTiles, (size_t)img->nPlanes, sizeof(CrxPlaneComp));
+      size_t size3 = safe_alloc_size_3((size_t)nTiles * img->nPlanes, (size_t)img->subbandCount, sizeof(CrxSubband));
+      if (size1 == 0 || size2 == 0 || size3 == 0)
+        return -1;
+      size_t total_size;
+      if (safe_add_size_t(size1, size2, &total_size) != 0)
+        return -1;
+      if (safe_add_size_t(total_size, size3, &total_size) != 0)
+        return -1;
+
       img->tiles = (CrxTile *)
 #ifdef LIBRAW_CR3_MEMPOOL
                        img->memmgr.
 #endif
-                   calloc(sizeof(CrxTile) * nTiles + sizeof(CrxPlaneComp) * nTiles * img->nPlanes +
-                              sizeof(CrxSubband) * nTiles * img->nPlanes * img->subbandCount,
-                          1);
+                   calloc(total_size, 1);
     if (!img->tiles)
       return -1;
 

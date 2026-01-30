@@ -17,6 +17,7 @@
  */
 
 #include "../../internal/dcraw_defs.h"
+#include "../../internal/libraw_safe_math.h"
 
 void LibRaw::hat_transform(float *temp, float *base, int st, int size, int sc)
 {
@@ -46,8 +47,17 @@ void LibRaw::wavelet_denoise()
   maximum <<= --scale;
   black <<= scale;
   FORC4 cblack[c] <<= scale;
-  if ((size = iheight * iwidth) < 0x15550000)
-    fimg = (float *)malloc((size * 3 + iheight + iwidth + 128) * sizeof *fimg);
+  /* SECURITY FIX: Check for integer overflow in size calculation */
+  size_t safe_size = safe_alloc_size_2d(iheight, iwidth, 1);
+  if (safe_size == 0 || safe_size >= 0x15550000)
+    return;
+  size = (int)safe_size;
+
+  /* SECURITY FIX: Check for integer overflow in allocation */
+  size_t alloc_elements = (size_t)size * 3 + (size_t)iheight + (size_t)iwidth + 128;
+  if (alloc_elements > SIZE_MAX / sizeof(float))
+    return;
+  fimg = (float *)malloc(alloc_elements * sizeof *fimg);
   temp = fimg + size * 3;
   if ((nc = colors) == 3 && filters)
     nc++;
@@ -144,8 +154,17 @@ void LibRaw::wavelet_denoise()
   maximum <<= --scale;
   black <<= scale;
   FORC4 cblack[c] <<= scale;
-  if ((size = iheight * iwidth) < 0x15550000)
-    fimg = (float *)malloc((size * 3 + iheight + iwidth) * sizeof *fimg);
+  /* SECURITY FIX: Check for integer overflow in size calculation */
+  size_t safe_size_omp = safe_alloc_size_2d(iheight, iwidth, 1);
+  if (safe_size_omp == 0 || safe_size_omp >= 0x15550000)
+    return;
+  size = (int)safe_size_omp;
+
+  /* SECURITY FIX: Check for integer overflow in allocation */
+  size_t alloc_elements_omp = (size_t)size * 3 + (size_t)iheight + (size_t)iwidth;
+  if (alloc_elements_omp > SIZE_MAX / sizeof(float))
+    return;
+  fimg = (float *)malloc(alloc_elements_omp * sizeof *fimg);
   temp = fimg + size * 3;
   if ((nc = colors) == 3 && filters)
     nc++;
@@ -306,6 +325,9 @@ void LibRaw::blend_highlights()
         for (sum[i] = 0, c = 1; c < colors; c++)
           sum[i] += SQR(lab[i][c]);
       }
+      /* SECURITY FIX: Check for division by zero */
+      if (sum[0] < 1e-10f)
+        continue;
       chratio = sqrt(sum[1] / sum[0]);
       for (c = 1; c < colors; c++)
         lab[0][c] *= chratio;
@@ -336,6 +358,13 @@ void LibRaw::recover_highlights()
       kc = c;
   high = height / SCALE;
   wide = width / SCALE;
+  /* SECURITY FIX: Check for division resulting in zero dimensions */
+  if (high == 0 || wide == 0)
+    return;
+  /* SECURITY FIX: Check for integer overflow in allocation */
+  size_t map_alloc = safe_alloc_size_2d(high, wide, sizeof *map);
+  if (map_alloc == 0)
+    return;
   map = (float *)calloc(high, wide * sizeof *map);
   FORC(unsigned(colors)) if (c != kc)
   {
@@ -357,7 +386,8 @@ void LibRaw::recover_highlights()
               count++;
             }
           }
-        if (count == SCALE * SCALE)
+        /* SECURITY FIX: Check for division by zero */
+        if (count == SCALE * SCALE && wgt > 0.0f)
           map[mrow * wide + mcol] = sum / wgt;
       }
     for (spread = int(32.f / grow); spread--;)

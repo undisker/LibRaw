@@ -13,6 +13,7 @@
  */
 
 #include "../../internal/dcraw_defs.h"
+#include "../../internal/libraw_safe_math.h"
 
 void LibRaw::Kodak_KDC_WBtags(int wb, int wbi)
 {
@@ -31,8 +32,9 @@ void LibRaw::Kodak_DCR_WBtags(int wb, unsigned type, int wbi)
   FORC3 mul[c] = (num = getrealf(type)) <= 0.001f ? 1.0f : num;
   icWBC[wb][1] = icWBC[wb][3] = int(mul[1]);
   mul2 = mul[1] * mul[1];
-  icWBC[wb][0] = int(mul2 / mul[0]);
-  icWBC[wb][2] = int(mul2 / mul[2]);
+  /* SECURITY FIX: Safe division to prevent division by zero */
+  icWBC[wb][0] = int(safe_div_float(mul2, mul[0], mul2));
+  icWBC[wb][2] = int(safe_div_float(mul2, mul[2], mul2));
   if (wbi == wb)
     FORC4 cam_mul[c] = float(icWBC[wb][c]);
   return;
@@ -61,8 +63,9 @@ short LibRaw::KodakIllumMatrix(unsigned type, float *romm_camIllum)
     if ((romm_camScale[0] > 0x1fff) && (romm_camScale[1] > 0x1fff) &&
         (romm_camScale[2] > 0x1fff))
     {
+      /* SECURITY FIX: Safe division to prevent division by zero */
       FORC3 for (j = 0; j < 3; j++)((float *)romm_camIllum)[c * 3 + j] =
-          ((float)romm_camTemp[c * 3 + j]) / ((float)romm_camScale[c]);
+          safe_div_float((float)romm_camTemp[c * 3 + j], (float)romm_camScale[c], 0.0f);
       return 1;
     }
   }

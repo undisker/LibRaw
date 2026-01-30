@@ -14,6 +14,7 @@
  */
 
 #include "../../internal/libraw_cxx_defs.h"
+#include "../../internal/libraw_safe_math.h"
 #include <vector>
 
 void LibRaw::dng_ycbcr_thumb_loader()
@@ -65,6 +66,11 @@ void LibRaw::kodak_thumb_loader()
 
   S.iheight = S.height;
   S.iwidth = S.width;
+
+  /* SECURITY FIX: Check for integer overflow in allocation size */
+  size_t alloc_size = safe_alloc_size_2d(S.iheight, S.iwidth, sizeof(*imgdata.image));
+  if (alloc_size == 0)
+    throw LIBRAW_EXCEPTION_ALLOC;
 
   imgdata.image =
       (ushort(*)[4])calloc(S.iheight * S.iwidth, sizeof(*imgdata.image));
@@ -209,7 +215,11 @@ void LibRaw::kodak_thumb_loader()
 
   if (T.thumb)
     free(T.thumb);
-  T.thumb = (char *)calloc(S.width * S.height, P1.colors);
+  /* SECURITY FIX: Check for integer overflow in allocation size */
+  size_t thumb_alloc_size = safe_alloc_size_3(S.width, S.height, P1.colors);
+  if (thumb_alloc_size == 0)
+    throw LIBRAW_EXCEPTION_ALLOC;
+  T.thumb = (char *)calloc(thumb_alloc_size, 1);
   T.tlength = S.width * S.height * P1.colors;
 
   // from write_tiff_ppm

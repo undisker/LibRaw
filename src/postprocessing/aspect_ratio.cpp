@@ -17,6 +17,7 @@
  */
 
 #include "../../internal/dcraw_defs.h"
+#include "../../internal/libraw_safe_math.h"
 
 void LibRaw::fuji_rotate()
 {
@@ -38,6 +39,10 @@ void LibRaw::fuji_rotate()
       INT64(imgdata.rawparams.max_raw_memory_mb) * INT64(1024 * 1024))
     throw LIBRAW_EXCEPTION_TOOBIG;
 
+  /* SECURITY FIX: Check for integer overflow in allocation */
+  size_t fuji_alloc = safe_alloc_size_2d(high, wide, sizeof *img);
+  if (fuji_alloc == 0)
+    throw LIBRAW_EXCEPTION_ALLOC;
   img = (ushort(*)[4])calloc(high, wide * sizeof *img);
 
   RUN_CALLBACK(LIBRAW_PROGRESS_FUJI_ROTATE, 0, 2);
@@ -78,7 +83,14 @@ void LibRaw::stretch()
   RUN_CALLBACK(LIBRAW_PROGRESS_STRETCH, 0, 2);
   if (pixel_aspect < 1)
   {
+    /* SECURITY FIX: Check for division by zero and very small values */
+    if (pixel_aspect < 0.001)
+      return;
     newdim = ushort(height / pixel_aspect + 0.5);
+    /* SECURITY FIX: Check for integer overflow in allocation */
+    size_t stretch_alloc = safe_alloc_size_2d(width, newdim, sizeof *img);
+    if (stretch_alloc == 0)
+      throw LIBRAW_EXCEPTION_ALLOC;
     img = (ushort(*)[4])calloc(width, newdim * sizeof *img);
     for (rc = row = 0; row < newdim; row++, rc += pixel_aspect)
     {
@@ -95,6 +107,10 @@ void LibRaw::stretch()
   else
   {
     newdim = ushort(width * pixel_aspect + 0.5);
+    /* SECURITY FIX: Check for integer overflow in allocation */
+    size_t stretch_alloc2 = safe_alloc_size_2d(height, newdim, sizeof *img);
+    if (stretch_alloc2 == 0)
+      throw LIBRAW_EXCEPTION_ALLOC;
     img = (ushort(*)[4])calloc(height, newdim * sizeof *img);
     for (rc = col = 0; col < newdim; col++, rc += 1 / pixel_aspect)
     {

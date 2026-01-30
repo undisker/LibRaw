@@ -17,13 +17,41 @@
  */
 
 #include "../../internal/dcraw_defs.h"
+#include "../../internal/libraw_safe_math.h"
+
+/*
+ * Binary search helper for finding spline interval
+ * PERFORMANCE FIX: Replaces O(n) linear search with O(log n) binary search
+ */
+static int find_spline_interval(const float *x, int len, float x_out)
+{
+  int lo = 0, hi = len - 2;
+  while (lo < hi)
+  {
+    int mid = (lo + hi + 1) / 2;
+    if (x[mid] <= x_out)
+      lo = mid;
+    else
+      hi = mid - 1;
+  }
+  return lo;
+}
 
 void LibRaw::cubic_spline(const int *x_, const int *y_, const int len)
 {
   float **A, *b, *c, *d, *x, *y;
   int i, j;
 
-  A = (float **)calloc(((2 * len + 4) * sizeof **A + sizeof *A), 2 * len);
+  /* SECURITY FIX: Validate len to prevent excessive allocation */
+  if (len < 2 || len > 65536)
+    return;
+
+  /* SECURITY FIX: Check for allocation overflow */
+  size_t alloc_size = safe_alloc_size_2d(2 * len + 4, sizeof(float), 2 * len);
+  if (alloc_size == 0)
+    return;
+
+  A = (float **)calloc(alloc_size + sizeof(float *) * 2 * len, 1);
   if (!A)
     return;
   A[0] = (float *)(A + 2 * len);
@@ -37,9 +65,10 @@ void LibRaw::cubic_spline(const int *x_, const int *y_, const int len)
   }
   for (i = len - 1; i > 0; i--)
   {
-	float _div = x[i] - x[i - 1];
-	if (fabsf(_div) < 1.0e-15f)
-		_div = 1;
+    float _div = x[i] - x[i - 1];
+    /* SECURITY FIX: Prevent division by very small numbers */
+    if (fabsf(_div) < 1.0e-15f)
+      _div = 1.0f;
     b[i] = (y[i] - y[i - 1]) / _div;
     d[i - 1] = _div;
   }
@@ -55,6 +84,12 @@ void LibRaw::cubic_spline(const int *x_, const int *y_, const int len)
   }
   for (i = 1; i < len - 2; i++)
   {
+    /* SECURITY FIX: Check for matrix singularity before division */
+    if (fabsf(A[i][i]) < 1.0e-15f)
+    {
+      free(A);
+      return;
+    }
     float v = A[i + 1][i] / A[i][i];
     for (j = 1; j <= len - 1; j++)
       A[i + 1][j] -= v * A[i][j];
@@ -64,28 +99,42 @@ void LibRaw::cubic_spline(const int *x_, const int *y_, const int len)
     float acc = 0;
     for (j = i; j <= len - 2; j++)
       acc += A[i][j] * c[j];
+    /* SECURITY FIX: Check for division by zero */
+    if (fabsf(A[i][i]) < 1.0e-15f)
+    {
+      free(A);
+      return;
+    }
     c[i] = (A[i][len - 1] - acc) / A[i][i];
   }
+
+  /* PERFORMANCE FIX: Use binary search instead of linear search */
   for (i = 0; i < 0x10000; i++)
   {
     float x_out = (float)(i / 65535.0f);
     float y_out = 0;
-    for (j = 0; j < len - 1; j++)
+
+    /* Find interval using binary search - O(log n) instead of O(n) */
+    j = find_spline_interval(x, len, x_out);
+
+    if (j >= 0 && j < len - 1 && x[j] <= x_out && x_out <= x[j + 1])
     {
-      if (x[j] <= x_out && x_out <= x[j + 1])
-      {
-        float v = x_out - x[j];
-        y_out = y[j] +
-                ((y[j + 1] - y[j]) / d[j] -
-                 (2 * d[j] * c[j] + c[j + 1] * d[j]) / 6) *
-                    v +
-                (c[j] * 0.5f) * v * v +
-                ((c[j + 1] - c[j]) / (6.f * d[j])) * v * v * v;
-      }
+      float v = x_out - x[j];
+      /* SECURITY FIX: Safe division with validation */
+      float d_j = d[j];
+      if (fabsf(d_j) < 1.0e-15f)
+        d_j = 1.0f;
+      y_out = y[j] +
+              ((y[j + 1] - y[j]) / d_j -
+               (2 * d_j * c[j] + c[j + 1] * d_j) / 6) *
+                  v +
+              (c[j] * 0.5f) * v * v +
+              ((c[j + 1] - c[j]) / (6.f * d_j)) * v * v * v;
     }
-    curve[i] = y_out < 0.0
+
+    curve[i] = y_out < 0.0f
                    ? 0
-                   : (y_out >= 1.0 ? 65535 : (ushort)(y_out * 65535.0f + 0.5f));
+                   : (y_out >= 1.0f ? 65535 : (ushort)(y_out * 65535.0f + 0.5f));
   }
   free(A);
 }

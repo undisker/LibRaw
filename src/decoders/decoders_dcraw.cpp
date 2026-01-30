@@ -210,7 +210,9 @@ void LibRaw::canon_load_raw()
   lowbits = canon_has_lowbits();
   if (!lowbits)
     maximum = 0x3ff;
-  fseek(ifp, 540 + lowbits * raw_height * raw_width / 4, SEEK_SET);
+  /* SECURITY FIX: Calculate offset with overflow protection */
+  INT64 seek_offset = 540 + (INT64)lowbits * (INT64)raw_height * (INT64)raw_width / 4;
+  fseek(ifp, seek_offset, SEEK_SET);
   zero_after_ff = 1;
   getbits(-1);
   try
@@ -574,13 +576,17 @@ void LibRaw::lossless_jpeg_load_raw()
         if (cr2_slice[0])
         {
           jidx = jrow * jwide + jcol;
-          i = jidx / (cr2_slice[1] * raw_height);
+          /* SECURITY FIX: Check for division by zero before division */
+          int slice_mult = cr2_slice[1] * raw_height;
+          if (slice_mult <= 0)
+            throw LIBRAW_EXCEPTION_IO_CORRUPT;
+          i = jidx / slice_mult;
           if ((j = i >= cr2_slice[0]))
             i = cr2_slice[0];
 		  if(!cr2_slice[1+j])
             throw LIBRAW_EXCEPTION_IO_CORRUPT;
 
-          jidx -= i * (cr2_slice[1] * raw_height);
+          jidx -= i * slice_mult;
           row = jidx / cr2_slice[1 + j];
           col = jidx % cr2_slice[1 + j] + i * cr2_slice[1];
         }
@@ -633,7 +639,9 @@ void LibRaw::canon_sraw_load_raw()
     for (ecol = slice = 0; slice <= cr2_slice[0]; slice++)
     {
       scol = ecol;
-      ecol += cr2_slice[1] * 2 / jh.clrs;
+      /* SECURITY FIX: Check for division by zero */
+      if (jh.clrs > 0)
+        ecol += cr2_slice[1] * 2 / jh.clrs;
       if (!cr2_slice[0] || ecol > raw_width - 1)
         ecol = raw_width & -2;
       for (row = 0; row < height; row += (jh.clrs >> 1) - 1)
@@ -856,12 +864,27 @@ void LibRaw::nikon_read_curve()
       step /= 4;
       max /= 4;
     }
+    /* SECURITY FIX: Validate step is still positive after division */
+    if (step <= 0)
+      return;
     for (i = 0; i < csize; i++)
-      curve[i * step] = get2();
+    {
+      int idx = i * step;
+      /* SECURITY FIX: Bounds check array access */
+      if (idx >= 0 && idx < 0x10000)
+        curve[idx] = get2();
+    }
     for (i = 0; i < max; i++)
-      curve[i] = (curve[i - i % step] * (step - i % step) +
-                  curve[i - i % step + step] * (i % step)) /
-                 step;
+    {
+      /* SECURITY FIX: Bounds check array indices */
+      int idx1 = i - i % step;
+      int idx2 = i - i % step + step;
+      if (idx2 >= max)
+        idx2 = max - 1;
+      if (idx1 >= 0 && idx1 < 0x10000 && idx2 >= 0 && idx2 < 0x10000)
+        curve[i] = (curve[idx1] * (step - i % step) +
+                    curve[idx2] * (i % step)) / step;
+    }
   }
   else if (ver0 != 0x46 && csize <= 0x4001)
     read_shorts(curve, max = csize);

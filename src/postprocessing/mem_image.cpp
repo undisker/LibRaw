@@ -13,6 +13,7 @@
  */
 
 #include "../../internal/libraw_cxx_defs.h"
+#include "../../internal/libraw_safe_math.h"
 
 libraw_processed_image_t *LibRaw::dcraw_make_mem_thumb(int *errcode)
 {
@@ -49,8 +50,15 @@ libraw_processed_image_t *LibRaw::dcraw_make_mem_thumb(int *errcode)
 
   if (T.tformat == LIBRAW_THUMBNAIL_BITMAP)
   {
-    libraw_processed_image_t *ret = (libraw_processed_image_t *)::malloc(
-        sizeof(libraw_processed_image_t) + T.tlength);
+    /* SECURITY FIX: Check for integer overflow in allocation size */
+    size_t total_size;
+    if (safe_add_size_t(sizeof(libraw_processed_image_t), T.tlength, &total_size) != 0)
+    {
+      if (errcode)
+        *errcode = LIBRAW_TOO_BIG;
+      return NULL;
+    }
+    libraw_processed_image_t *ret = (libraw_processed_image_t *)::malloc(total_size);
 
     if (!ret)
     {
@@ -83,8 +91,15 @@ libraw_processed_image_t *LibRaw::dcraw_make_mem_thumb(int *errcode)
 
     int dsize = T.tlength + mk_exif * (sizeof(exif) + sizeof(tiff_hdr));
 
-    libraw_processed_image_t *ret = (libraw_processed_image_t *)::malloc(
-        sizeof(libraw_processed_image_t) + dsize);
+    /* SECURITY FIX: Check for integer overflow in allocation size */
+    size_t total_size;
+    if (safe_add_size_t(sizeof(libraw_processed_image_t), (size_t)dsize, &total_size) != 0)
+    {
+      if (errcode)
+        *errcode = LIBRAW_TOO_BIG;
+      return NULL;
+    }
+    libraw_processed_image_t *ret = (libraw_processed_image_t *)::malloc(total_size);
 
     if (!ret)
     {
@@ -122,7 +137,15 @@ libraw_processed_image_t *LibRaw::dcraw_make_mem_thumb(int *errcode)
   else if (T.tformat == LIBRAW_THUMBNAIL_H265 || T.tformat == LIBRAW_THUMBNAIL_JPEGXL)
   {
     int dsize = T.tlength;
-    libraw_processed_image_t *ret = (libraw_processed_image_t *)::malloc(sizeof(libraw_processed_image_t) + dsize);
+    /* SECURITY FIX: Check for integer overflow in allocation size */
+    size_t total_size;
+    if (safe_add_size_t(sizeof(libraw_processed_image_t), (size_t)dsize, &total_size) != 0)
+    {
+      if (errcode)
+        *errcode = LIBRAW_TOO_BIG;
+      return NULL;
+    }
+    libraw_processed_image_t *ret = (libraw_processed_image_t *)::malloc(total_size);
     if (!ret)
     {
       if (errcode)
@@ -279,10 +302,36 @@ libraw_processed_image_t *LibRaw::dcraw_make_mem_image(int *errcode)
 {
   int width, height, colors, bps;
   get_mem_image_format(&width, &height, &colors, &bps);
-  int stride = width * (bps / 8) * colors;
-  unsigned ds = height * stride;
-  libraw_processed_image_t *ret = (libraw_processed_image_t *)::malloc(
-      sizeof(libraw_processed_image_t) + ds);
+
+  /* SECURITY FIX: Check for integer overflow in stride calculation */
+  size_t stride_size = safe_alloc_size_3((size_t)width, (size_t)(bps / 8), (size_t)colors);
+  if (stride_size == 0 || stride_size > INT_MAX)
+  {
+    if (errcode)
+      *errcode = LIBRAW_TOO_BIG;
+    return NULL;
+  }
+  int stride = (int)stride_size;
+
+  /* SECURITY FIX: Check for integer overflow in data size calculation */
+  size_t ds;
+  if (safe_mul_size_t((size_t)height, stride_size, &ds) != 0)
+  {
+    if (errcode)
+      *errcode = LIBRAW_TOO_BIG;
+    return NULL;
+  }
+
+  /* SECURITY FIX: Check for integer overflow in allocation size */
+  size_t total_size;
+  if (safe_add_size_t(sizeof(libraw_processed_image_t), ds, &total_size) != 0)
+  {
+    if (errcode)
+      *errcode = LIBRAW_TOO_BIG;
+    return NULL;
+  }
+
+  libraw_processed_image_t *ret = (libraw_processed_image_t *)::malloc(total_size);
   if (!ret)
   {
     if (errcode)

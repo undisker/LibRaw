@@ -131,7 +131,11 @@ void LibRaw::phase_one_fix_pixel_grad(unsigned row, unsigned col)
       total += est[i];
       count += 2;
     }
-  RAW(row, col) = constain32((total + (count >> 1)) / count, lower, upper);
+  /* SECURITY FIX: Check for division by zero */
+  if (count > 0)
+    RAW(row, col) = constain32((total + (count >> 1)) / count, lower, upper);
+  else
+    RAW(row, col) = constain32(total, lower, upper);
 }
 
 void LibRaw::phase_one_flat_field(int is_float, int nc)

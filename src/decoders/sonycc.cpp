@@ -20,6 +20,7 @@ it under the terms of the one of two licenses as you choose:
 
 #include "../../internal/libraw_cxx_defs.h"
 #include "../../internal/losslessjpeg.h"
+#include "../../internal/libraw_safe_math.h"
 #include <vector>
 #include <algorithm>
 
@@ -245,7 +246,10 @@ void LibRaw::sony_ycbcr_load_raw()
   // calculate tile count
   int tile_w = (S.raw_width + UD.tile_width - 1) / UD.tile_width;
   int tile_h = (S.raw_height + UD.tile_length - 1) / UD.tile_length;
-  int tiles = tile_w * tile_h;
+  /* SECURITY FIX: Check for integer overflow in tiles calculation */
+  int tiles;
+  if (safe_mul_int(tile_w, tile_h, &tiles) != 0)
+    throw LIBRAW_EXCEPTION_IO_CORRUPT;
   if (tiles < 1 || tiles > 1024)
     throw LIBRAW_EXCEPTION_IO_CORRUPT;
 
@@ -279,7 +283,10 @@ void LibRaw::sony_ycbcr_load_raw()
 	  if(dec.state != LibRaw_LjpegDecompressor::State::OK)
         throw LIBRAW_EXCEPTION_IO_CORRUPT;
 
-	  unsigned tiledatatsize = UD.tile_width * UD.tile_length * 3;
+	  /* SECURITY FIX: Check for integer overflow in tile data size */
+	  size_t tiledatatsize = safe_alloc_size_3(UD.tile_width, UD.tile_length, 3);
+	  if (tiledatatsize == 0)
+		  throw LIBRAW_EXCEPTION_IO_CORRUPT;
 	  if (tilebuffer.size() < tiledatatsize)
 		  tilebuffer.resize(tiledatatsize);
 
