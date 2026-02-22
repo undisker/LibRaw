@@ -29,11 +29,6 @@ This is a security-patched fork of LibRaw with safety improvements and build sys
 - Support for **zlib-ng** (preferred, produces `zlib1.dll`)
 - Dependencies: zlib-ng, libjpeg-turbo, lcms2, jasper
 
-### FreePascal Bindings
-
-- Complete Pascal wrapper (`pascal/LibRaw.pas`)
-- Sample RAW viewer application (`pascal/test_app/`)
-
 ---
 
 # LibRaw (Original)
