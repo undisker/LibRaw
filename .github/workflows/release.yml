@@ -1,0 +1,107 @@
+name: Release
+
+# Builds LibRaw (library + sample tools) on native Windows, macOS and Linux
+# runners and, when a version tag (v*) is pushed, publishes the per-platform
+# zip archives to a GitHub Release.
+#
+# Trigger manually (workflow_dispatch) to produce downloadable build artifacts
+# without publishing a release.
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build (${{ matrix.platform }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            platform: windows-x64
+            # MSVC's default /openmp is OpenMP 2.0, which cannot compile the
+            # 3.0+ pragmas in the codebase (collapse, max-reduction); build the
+            # Windows release single-threaded for now.
+            cmake_extra: -DLIBRAW_ENABLE_OPENMP=OFF
+          - os: macos-latest
+            platform: macos-arm64
+            cmake_extra: ""
+          - os: macos-13
+            platform: macos-x64
+            cmake_extra: ""
+          - os: ubuntu-latest
+            platform: linux-x64
+            cmake_extra: ""
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure
+        shell: bash
+        run: |
+          cmake -S . -B build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_SHARED_LIBS=ON \
+            -DBUILD_SAMPLES=ON \
+            -DBUILD_TESTS=ON \
+            -DLIBRAW_ENABLE_ZLIB=OFF \
+            -DLIBRAW_ENABLE_JPEG=OFF \
+            -DLIBRAW_ENABLE_LCMS2=OFF \
+            -DLIBRAW_ENABLE_JASPER=OFF \
+            ${{ matrix.cmake_extra }}
+
+      - name: Build
+        shell: bash
+        run: cmake --build build --config Release -j 4
+
+      - name: Test
+        shell: bash
+        run: ctest --test-dir build -C Release --output-on-failure
+
+      - name: Package
+        shell: bash
+        run: |
+          VER="${GITHUB_REF_NAME:-dev}"
+          PKG="libraw-${VER}-${{ matrix.platform }}"
+          mkdir -p "stage/${PKG}"
+          # library + public headers + cmake package files
+          cmake --install build --config Release --prefix "stage/${PKG}"
+          # sample/tool executables (+ shared lib alongside them so they run)
+          mkdir -p "stage/${PKG}/tools"
+          if [ -d build/bin/Release ]; then BIN=build/bin/Release; else BIN=build/bin; fi
+          cp -r "${BIN}/." "stage/${PKG}/tools/" 2>/dev/null || true
+          cp README.md LICENSE.LGPL LICENSE.CDDL SAMPLES.md "stage/${PKG}/" 2>/dev/null || true
+          ( cd stage && cmake -E tar cf "../${PKG}.zip" --format=zip "${PKG}" )
+          echo "PKG=${PKG}" >> "$GITHUB_ENV"
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.PKG }}
+          path: ${{ env.PKG }}.zip
+          if-no-files-found: error
+
+  release:
+    name: Publish GitHub Release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Create / update release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/**/*.zip
+          generate_release_notes: true
+          fail_on_unmatched_files: true

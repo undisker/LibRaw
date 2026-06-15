@@ -39,7 +39,9 @@ int LibRaw::subtract_black_internal()
       int dmax = 0;
       if (C.cblack[4] && C.cblack[5])
       {
-#if defined(LIBRAW_USE_OPENMP)
+// max-reduction needs OpenMP 3.1+ (201107); MSVC default /openmp is 2.0 and
+// rejects reduction(max:), so fall back to a correct serial scan there.
+#if defined(LIBRAW_USE_OPENMP) && (_OPENMP >= 201107)
 #pragma omp parallel for reduction(max : dmax)
 #endif
         for (int q = 0; q < size; q++)
@@ -57,7 +59,9 @@ int LibRaw::subtract_black_internal()
       }
       else
       {
-#if defined(LIBRAW_USE_OPENMP)
+// max-reduction needs OpenMP 3.1+ (201107); MSVC default /openmp is 2.0 and
+// rejects reduction(max:), so fall back to a correct serial scan there.
+#if defined(LIBRAW_USE_OPENMP) && (_OPENMP >= 201107)
 #pragma omp parallel for reduction(max : dmax)
 #endif
         for (int q = 0; q < size; q++)
@@ -83,7 +87,9 @@ int LibRaw::subtract_black_internal()
       ushort *p = (ushort *)imgdata.image;
       int dmax = 0;
       const int n = S.iheight * S.iwidth * 4;
-#if defined(LIBRAW_USE_OPENMP)
+// max-reduction needs OpenMP 3.1+ (201107); MSVC default /openmp is 2.0 and
+// rejects reduction(max:), so fall back to a correct serial scan there.
+#if defined(LIBRAW_USE_OPENMP) && (_OPENMP >= 201107)
 #pragma omp parallel for reduction(max : dmax)
 #endif
       for (int idx = 0; idx < n; idx++)
