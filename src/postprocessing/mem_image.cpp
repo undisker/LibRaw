@@ -244,18 +244,22 @@ int LibRaw::copy_mem_image(void *scan0, int stride, int bgr)
 
   if (S.flip & 4)
     SWAP(S.height, S.width);
-  uchar *ppm;
-  ushort *ppm2;
-  int c, row, col, soff, rstep, cstep;
+  int row;
+  // Per-row starting source offset equals flip_index(row, 0) (flip_index is a
+  // pure read-only mapping), so each row is independent and the loop can run in
+  // parallel. cstep is the per-column source stride. Rows write disjoint output.
+  const int cstep = flip_index(0, 1) - flip_index(0, 0);
 
-  soff = flip_index(0, 0);
-  cstep = flip_index(0, 1) - soff;
-  rstep = flip_index(1, 0) - flip_index(0, S.width);
-
-  for (row = 0; row < S.height; row++, soff += rstep)
+#if defined(LIBRAW_USE_OPENMP)
+#pragma omp parallel for
+#endif
+  for (row = 0; row < S.height; row++)
   {
+    int c, col;
+    int soff = flip_index(row, 0);
     uchar *bufp = ((uchar *)scan0) + row * stride;
-    ppm2 = (ushort *)(ppm = bufp);
+    uchar *ppm = bufp;
+    ushort *ppm2 = (ushort *)bufp;
     // keep trivial decisions in the outer loop for speed
     if (bgr)
     {

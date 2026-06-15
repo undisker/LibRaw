@@ -39,7 +39,10 @@ int LibRaw::subtract_black_internal()
       int dmax = 0;
       if (C.cblack[4] && C.cblack[5])
       {
-        for (unsigned q = 0; q < (unsigned)size; q++)
+#if defined(LIBRAW_USE_OPENMP)
+#pragma omp parallel for reduction(max : dmax)
+#endif
+        for (int q = 0; q < size; q++)
         {
           for (unsigned c = 0; c < 4; c++)
           {
@@ -54,7 +57,10 @@ int LibRaw::subtract_black_internal()
       }
       else
       {
-        for (unsigned q = 0; q < (unsigned)size; q++)
+#if defined(LIBRAW_USE_OPENMP)
+#pragma omp parallel for reduction(max : dmax)
+#endif
+        for (int q = 0; q < size; q++)
         {
           for (unsigned c = 0; c < 4; c++)
           {
@@ -74,10 +80,13 @@ int LibRaw::subtract_black_internal()
     {
       // Nothing to Do, maximum is already calculated, black level is 0, so no
       // change only calculate channel maximum;
-      int idx;
       ushort *p = (ushort *)imgdata.image;
       int dmax = 0;
-      for (idx = 0; idx < S.iheight * S.iwidth * 4; idx++)
+      const int n = S.iheight * S.iwidth * 4;
+#if defined(LIBRAW_USE_OPENMP)
+#pragma omp parallel for reduction(max : dmax)
+#endif
+      for (int idx = 0; idx < n; idx++)
         if (dmax < p[idx])
           dmax = p[idx];
       C.data_maximum = dmax;

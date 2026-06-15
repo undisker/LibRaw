@@ -61,7 +61,11 @@ void LibRaw::exp_bef(float shift, float smooth)
         lut[i] = Y < 0 ? 0 : (Y > TBLN ? TBLN : (unsigned short)(Y));
     }
   }
-  for (int i = 0; i < S.height * S.width; i++)
+  const int npixels = S.height * S.width;
+#if defined(LIBRAW_USE_OPENMP)
+#pragma omp parallel for
+#endif
+  for (int i = 0; i < npixels; i++)
   {
     imgdata.image[i][0] = lut[imgdata.image[i][0]];
     imgdata.image[i][1] = lut[imgdata.image[i][1]];
@@ -78,80 +82,157 @@ void LibRaw::exp_bef(float shift, float smooth)
 
 void LibRaw::convert_to_rgb_loop(float out_cam[3][4])
 {
-  int row, col, c;
-  float out[3];
-  ushort *img;
-  memset(libraw_internal_data.output_data.histogram, 0,
-         sizeof(int) * LIBRAW_HISTOGRAM_SIZE * 4);
+  typedef int(*histbuf_t)[LIBRAW_HISTOGRAM_SIZE];
+  histbuf_t const ghist = libraw_internal_data.output_data.histogram;
+  memset(ghist, 0, sizeof(int) * LIBRAW_HISTOGRAM_SIZE * 4);
+
+  // Each branch runs the same per-pixel work in parallel over rows. Histogram
+  // bins are a cross-thread reduction, so each thread accumulates into a private
+  // copy and merges once at the end (matches the OpenMP idiom used elsewhere in
+  // the library). Without OpenMP the block runs once and writes ghist directly.
   if (libraw_internal_data.internal_output_params.raw_color)
   {
-    for (img = imgdata.image[0], row = 0; row < S.height; row++)
+    const int colors = imgdata.idata.colors;
+#if defined(LIBRAW_USE_OPENMP)
+#pragma omp parallel
+#endif
     {
-      for (col = 0; col < S.width; col++, img += 4)
+#if defined(LIBRAW_USE_OPENMP)
+      histbuf_t hist =
+          (histbuf_t)::calloc(4, sizeof(int) * LIBRAW_HISTOGRAM_SIZE);
+#else
+      histbuf_t hist = ghist;
+#endif
+#if defined(LIBRAW_USE_OPENMP)
+#pragma omp for
+#endif
+      for (int row = 0; row < S.height; row++)
       {
-        for (c = 0; c < imgdata.idata.colors; c++)
-        {
-          libraw_internal_data.output_data.histogram[c][img[c] >> 3]++;
-        }
+        ushort *img = imgdata.image[(size_t)row * S.width];
+        for (int col = 0; col < S.width; col++, img += 4)
+          for (int c = 0; c < colors; c++)
+            hist[c][img[c] >> 3]++;
       }
+#if defined(LIBRAW_USE_OPENMP)
+#pragma omp critical(histmerge)
+      {
+        for (int c = 0; c < 4; c++)
+          for (int b = 0; b < LIBRAW_HISTOGRAM_SIZE; b++)
+            ghist[c][b] += hist[c][b];
+      }
+      ::free(hist);
+#endif
     }
   }
   else if (imgdata.idata.colors == 3)
   {
-    for (img = imgdata.image[0], row = 0; row < S.height; row++)
+#if defined(LIBRAW_USE_OPENMP)
+#pragma omp parallel
+#endif
     {
-      for (col = 0; col < S.width; col++, img += 4)
+#if defined(LIBRAW_USE_OPENMP)
+      histbuf_t hist =
+          (histbuf_t)::calloc(4, sizeof(int) * LIBRAW_HISTOGRAM_SIZE);
+#else
+      histbuf_t hist = ghist;
+#endif
+#if defined(LIBRAW_USE_OPENMP)
+#pragma omp for
+#endif
+      for (int row = 0; row < S.height; row++)
       {
-        out[0] = out_cam[0][0] * img[0] + out_cam[0][1] * img[1] +
-                 out_cam[0][2] * img[2];
-        out[1] = out_cam[1][0] * img[0] + out_cam[1][1] * img[1] +
-                 out_cam[1][2] * img[2];
-        out[2] = out_cam[2][0] * img[0] + out_cam[2][1] * img[1] +
-                 out_cam[2][2] * img[2];
-        img[0] = CLIP((int)out[0]);
-        img[1] = CLIP((int)out[1]);
-        img[2] = CLIP((int)out[2]);
-        libraw_internal_data.output_data.histogram[0][img[0] >> 3]++;
-        libraw_internal_data.output_data.histogram[1][img[1] >> 3]++;
-        libraw_internal_data.output_data.histogram[2][img[2] >> 3]++;
+        ushort *img = imgdata.image[(size_t)row * S.width];
+        for (int col = 0; col < S.width; col++, img += 4)
+        {
+          float out0 = out_cam[0][0] * img[0] + out_cam[0][1] * img[1] +
+                       out_cam[0][2] * img[2];
+          float out1 = out_cam[1][0] * img[0] + out_cam[1][1] * img[1] +
+                       out_cam[1][2] * img[2];
+          float out2 = out_cam[2][0] * img[0] + out_cam[2][1] * img[1] +
+                       out_cam[2][2] * img[2];
+          img[0] = CLIP((int)out0);
+          img[1] = CLIP((int)out1);
+          img[2] = CLIP((int)out2);
+          hist[0][img[0] >> 3]++;
+          hist[1][img[1] >> 3]++;
+          hist[2][img[2] >> 3]++;
+        }
       }
+#if defined(LIBRAW_USE_OPENMP)
+#pragma omp critical(histmerge)
+      {
+        for (int c = 0; c < 4; c++)
+          for (int b = 0; b < LIBRAW_HISTOGRAM_SIZE; b++)
+            ghist[c][b] += hist[c][b];
+      }
+      ::free(hist);
+#endif
     }
   }
   else if (imgdata.idata.colors == 4)
   {
-    for (img = imgdata.image[0], row = 0; row < S.height; row++)
+#if defined(LIBRAW_USE_OPENMP)
+#pragma omp parallel
+#endif
     {
-      for (col = 0; col < S.width; col++, img += 4)
+#if defined(LIBRAW_USE_OPENMP)
+      histbuf_t hist =
+          (histbuf_t)::calloc(4, sizeof(int) * LIBRAW_HISTOGRAM_SIZE);
+#else
+      histbuf_t hist = ghist;
+#endif
+#if defined(LIBRAW_USE_OPENMP)
+#pragma omp for
+#endif
+      for (int row = 0; row < S.height; row++)
       {
-        out[0] = out_cam[0][0] * img[0] + out_cam[0][1] * img[1] +
-                 out_cam[0][2] * img[2] + out_cam[0][3] * img[3];
-        out[1] = out_cam[1][0] * img[0] + out_cam[1][1] * img[1] +
-                 out_cam[1][2] * img[2] + out_cam[1][3] * img[3];
-        out[2] = out_cam[2][0] * img[0] + out_cam[2][1] * img[1] +
-                 out_cam[2][2] * img[2] + out_cam[2][3] * img[3];
-        img[0] = CLIP((int)out[0]);
-        img[1] = CLIP((int)out[1]);
-        img[2] = CLIP((int)out[2]);
-        libraw_internal_data.output_data.histogram[0][img[0] >> 3]++;
-        libraw_internal_data.output_data.histogram[1][img[1] >> 3]++;
-        libraw_internal_data.output_data.histogram[2][img[2] >> 3]++;
-        libraw_internal_data.output_data.histogram[3][img[3] >> 3]++;
+        ushort *img = imgdata.image[(size_t)row * S.width];
+        for (int col = 0; col < S.width; col++, img += 4)
+        {
+          float out0 = out_cam[0][0] * img[0] + out_cam[0][1] * img[1] +
+                       out_cam[0][2] * img[2] + out_cam[0][3] * img[3];
+          float out1 = out_cam[1][0] * img[0] + out_cam[1][1] * img[1] +
+                       out_cam[1][2] * img[2] + out_cam[1][3] * img[3];
+          float out2 = out_cam[2][0] * img[0] + out_cam[2][1] * img[1] +
+                       out_cam[2][2] * img[2] + out_cam[2][3] * img[3];
+          img[0] = CLIP((int)out0);
+          img[1] = CLIP((int)out1);
+          img[2] = CLIP((int)out2);
+          hist[0][img[0] >> 3]++;
+          hist[1][img[1] >> 3]++;
+          hist[2][img[2] >> 3]++;
+          hist[3][img[3] >> 3]++;
+        }
       }
+#if defined(LIBRAW_USE_OPENMP)
+#pragma omp critical(histmerge)
+      {
+        for (int c = 0; c < 4; c++)
+          for (int b = 0; b < LIBRAW_HISTOGRAM_SIZE; b++)
+            ghist[c][b] += hist[c][b];
+      }
+      ::free(hist);
+#endif
     }
   }
 }
 
 void LibRaw::scale_colors_loop(float scale_mul[4])
 {
-  unsigned size = S.iheight * S.iwidth;
+  // iheight*iwidth is bounded well below INT_MAX (enforced by allocation
+  // limits), so an int counter is safe and keeps the OpenMP loop canonical.
+  const int size = int(S.iheight * S.iwidth);
 
   if (C.cblack[4] && C.cblack[5])
   {
-    int val;
-    for (unsigned i = 0; i < size; i++)
+#if defined(LIBRAW_USE_OPENMP)
+#pragma omp parallel for
+#endif
+    for (int i = 0; i < size; i++)
     {
       for (unsigned c = 0; c < 4; c++)
       {
+        int val;
         if (!(val = imgdata.image[i][c])) continue;
         val -= C.cblack[6 + i / S.iwidth % C.cblack[4] * C.cblack[5] +
                         i % S.iwidth % C.cblack[5]];
@@ -163,7 +244,10 @@ void LibRaw::scale_colors_loop(float scale_mul[4])
   }
   else if (C.cblack[0] || C.cblack[1] || C.cblack[2] || C.cblack[3])
   {
-    for (unsigned i = 0; i < size; i++)
+#if defined(LIBRAW_USE_OPENMP)
+#pragma omp parallel for
+#endif
+    for (int i = 0; i < size; i++)
     {
       for (unsigned c = 0; c < 4; c++)
       {
@@ -177,7 +261,10 @@ void LibRaw::scale_colors_loop(float scale_mul[4])
   }
   else // BL is zero
   {
-    for (unsigned i = 0; i < size; i++)
+#if defined(LIBRAW_USE_OPENMP)
+#pragma omp parallel for
+#endif
+    for (int i = 0; i < size; i++)
     {
       for (unsigned c = 0; c < 4; c++)
       {

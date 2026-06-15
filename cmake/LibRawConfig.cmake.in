@@ -1,0 +1,17 @@
+@PACKAGE_INIT@
+
+# LibRaw package configuration file.
+# Provides the LibRaw::raw imported target to consumers using
+#   find_package(LibRaw CONFIG)
+
+include(CMakeFindDependencyMacro)
+
+# Re-discover optional dependencies that the library may have been linked
+# against, so downstream link lines resolve correctly.
+if(@OpenMP_CXX_FOUND@)
+    find_dependency(OpenMP)
+endif()
+
+include("${CMAKE_CURRENT_LIST_DIR}/LibRawTargets.cmake")
+
+check_required_components(LibRaw)

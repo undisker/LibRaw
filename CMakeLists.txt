@@ -17,6 +17,18 @@ option(LIBRAW_ENABLE_LCMS2 "Enable LCMS2 color management" ON)
 option(LIBRAW_ENABLE_JASPER "Enable JasPer JPEG-2000 support" ON)
 option(LIBRAW_ENABLE_X3FTOOLS "Enable Sigma X3F support" ON)
 option(LIBRAW_ENABLE_6BY9RPI "Enable Raspberry Pi camera support" OFF)
+option(LIBRAW_ENABLE_OPENMP "Enable OpenMP multithreading (decoders, demosaic, postprocessing)" ON)
+
+# Default to an optimized build when the user did not pick a configuration.
+# Without this, single-config generators leave CMAKE_BUILD_TYPE empty, which
+# means NO optimization flags (-O0) and a library several times slower than
+# the legacy Makefile.dist build (which uses -O3).
+if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
+    set(CMAKE_BUILD_TYPE Release CACHE STRING
+        "Build type (Debug, Release, RelWithDebInfo, MinSizeRel)" FORCE)
+    set_property(CACHE CMAKE_BUILD_TYPE PROPERTY STRINGS
+        Debug Release RelWithDebInfo MinSizeRel)
+endif()
 
 # C++ standard
 set(CMAKE_CXX_STANDARD 11)
@@ -220,6 +232,26 @@ else()
         -Wno-unused-parameter
         -Wno-missing-field-initializers
     )
+endif()
+
+# OpenMP multithreading.
+# The library ships with ~38 `#pragma omp` parallel loops (decoders, demosaic,
+# raw2image, postprocessing). Without enabling OpenMP here they are compiled
+# out and the library runs single-threaded, so detect and link it by default.
+if(LIBRAW_ENABLE_OPENMP)
+    find_package(OpenMP QUIET)
+    if(OpenMP_CXX_FOUND)
+        # Linking the imported target propagates -fopenmp to compilation, which
+        # sets _OPENMP. libraw_types.h then enables LIBRAW_USE_OPENMP per its own
+        # platform rules (on, except where it intentionally disables it, e.g.
+        # Apple), so we deliberately do NOT define LIBRAW_USE_OPENMP by hand.
+        target_link_libraries(raw PUBLIC OpenMP::OpenMP_CXX)
+        message(STATUS "  OpenMP: enabled (${OpenMP_CXX_FLAGS})")
+    else()
+        message(STATUS "  OpenMP: not found - building single-threaded")
+    endif()
+else()
+    message(STATUS "  OpenMP: disabled by option")
 endif()
 
 # Find and link dependencies
