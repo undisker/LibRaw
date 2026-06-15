@@ -125,7 +125,7 @@ library: lib/libraw.a lib/libraw_r.a
 
 all_samples: bin/raw-identify bin/simple_dcraw  bin/dcraw_emu bin/dcraw_half bin/half_mt bin/mem_image \
              bin/unprocessed_raw bin/4channels bin/multirender_test bin/postprocessing_benchmark \
-	     bin/rawtextdump
+	     bin/rawtextdump bin/batch_verify
 
 install: library
 	@if [ -d /usr/local/include ] ; then cp -R libraw /usr/local/include/ ; else echo 'no /usr/local/include' ; fi
@@ -162,6 +162,9 @@ bin/multirender_test: lib/libraw.a samples/multirender_test.cpp
 
 bin/postprocessing_benchmark: lib/libraw.a samples/postprocessing_benchmark.cpp
 	${CXX} -DLIBRAW_NOTHREADS   ${CFLAGS} -o bin/postprocessing_benchmark samples/postprocessing_benchmark.cpp -L./lib -lraw  -lm  ${LDADD}
+
+bin/batch_verify: lib/libraw.a samples/batch_verify.cpp
+	${CXX} -DLIBRAW_NOTHREADS   ${CFLAGS} -o bin/batch_verify samples/batch_verify.cpp -L./lib -lraw  -lm  ${LDADD}
 
 bin/mem_image: lib/libraw.a samples/mem_image_sample.cpp
 	${CXX} -DLIBRAW_NOTHREADS  ${CFLAGS} -o bin/mem_image samples/mem_image_sample.cpp -L./lib -lraw  -lm  ${LDADD}

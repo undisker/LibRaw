@@ -516,6 +516,11 @@ if(BUILD_SAMPLES)
         target_link_libraries(unprocessed_raw PRIVATE ws2_32)
     endif()
 
+    # Batch verifier: open every file in a folder, check consistency + speed
+    add_executable(batch_verify samples/batch_verify.cpp)
+    target_link_libraries(batch_verify PRIVATE raw)
+    target_include_directories(batch_verify PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+
     message(STATUS "LibRaw: Samples enabled")
 endif()
 
