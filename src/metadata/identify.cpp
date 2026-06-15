@@ -628,7 +628,11 @@ void LibRaw::identify()
   else if (!memcmp(head + 4, "ftypqt   ", 9))
   {
     fseek(ifp, 0, SEEK_SET);
+	// Use existing variable that definitely not used in parse_qt/parse_jpeg to avoid ABI change
+	short cr3save = libraw_internal_data.unpacker_data.CR3_Version;
+	libraw_internal_data.unpacker_data.CR3_Version = 32;
     parse_qt(fsize);
+	libraw_internal_data.unpacker_data.CR3_Version = cr3save;
     is_raw = 0;
   }
   else if (!memcmp(head, "\0\001\0\001\0@", 6))
@@ -698,7 +702,7 @@ void LibRaw::identify()
   else if (!memcmp(head + 4, "ftypcrx ", 8))
   {
     int err;
-    unsigned long long szAtomList;
+    UINT64 szAtomList;
     short nesting = -1;
     short nTrack = -1;
     short TrackType;
@@ -706,7 +710,7 @@ void LibRaw::identify()
     strcpy(make, "Canon");
 
     szAtomList = ifp->size();
-    err = parseCR3(0ULL, szAtomList, nesting, AtomNameStack, nTrack, TrackType);
+    err = parseCR3(0ULL, szAtomList, nesting, AtomNameStack, nTrack, TrackType,szAtomList);
     libraw_internal_data.unpacker_data.crx_track_count = nTrack;
     if ((err == 0 || err == -14) &&
         nTrack >= 0) // no error, or too deep nesting
@@ -1223,6 +1227,10 @@ dng_skip:
 	// Prevent incorrect-sized fuji-rotated files
 	if (INT64(width)*INT64(height) > INT64(raw_width) * INT64(raw_height) * 8LL)
 		is_raw = 0;
+
+	// All 'fuji-rotated' images are 6Mpix or less, so 8k x 8k limit is OK
+	if(width > 8192 || height > 8192 || raw_width > 8192 || raw_height > 8192)
+      is_raw = 0;
   }
   else
   {
@@ -2799,6 +2807,13 @@ void LibRaw::identify_finetune_dcr(char head[64], INT64 fsize, INT64 flen)
 			top_margin = 92;
 			height = raw_height - top_margin;
         }
+        else if ((imHassy.SensorCode == 22) && imHassy.uncropped)
+        { // Hasselblad X2D II-100c (sensor code from makernotes)
+			left_margin = 124;
+			width = 11664;
+			top_margin = 92;
+			height = raw_height - top_margin;
+        }
 
 		if (tiff_samples > 1)
 		{
@@ -3089,7 +3104,7 @@ void LibRaw::identify_finetune_dcr(char head[64], INT64 fsize, INT64 flen)
             height = 2846;
           }
         }
-        else if(unique_id == SonyID_ILCE_1)
+        else if((unique_id == SonyID_ILCE_1) || (unique_id == SonyID_ILCE_1M2) )
         {
           if (raw_width == 8704 && raw_height == 6144) // ILCE-1 FF@Compressed
           {
