@@ -1,10 +1,30 @@
 # LibRaw - Patched Version (undisker)
 
-**Version: 0.22.0-patched-undisker**
+**Version: 0.22.0-patched-undisker** (tracking upstream LibRaw `master`, ABI/shlib current `26`)
 
-This is a security-patched fork of LibRaw with safety improvements and build system enhancements.
+This is a security-patched fork of LibRaw with safety improvements and build system
+enhancements, kept in sync with the upstream [LibRaw/LibRaw](https://github.com/LibRaw/LibRaw)
+`master` branch.
 
-## Changes from Original LibRaw
+## Latest Upstream Sync (June 2026)
+
+The fork has been merged up to the latest upstream `master`, the most recent included
+change being **PR #799** (Hasselblad X2D II 100C support). The sync was reviewed with a
+comparative audit (no regressions; all fork-specific protections retained). Highlights
+adopted from upstream:
+
+- **Security / hardening**:
+  - Stack-memory / previous-image metadata exposure fix in `tiff.cpp` (reported by DMSAN)
+  - TALOS CVE fixes 2330, 2331, 2358, 2359, 2363, 2364 — integer-overflow and EOF hardening
+    across the X3F decoder, FP/deflated-DNG loader, CR3 parser, Panasonic enc8, Nikon
+    12-bit and Sony YCC paths
+  - `wavelet_denoise`: allocation size capped below 4 GB
+  - `unpack_thumb`: thumbnail size validated before allocation; allocation failures now
+    surface via the throwing `LibRaw::malloc`/`calloc` allocators
+- **Camera support**: Canon EOS Kiss M2, Sony A1 Mark II, Hasselblad X2D II 100C, plus
+  crop / colour-matrix corrections.
+
+## Fork-specific Changes
 
 ### Security Fixes
 
@@ -20,8 +40,12 @@ This is a security-patched fork of LibRaw with safety improvements and build sys
   - `decoders_dcraw.cpp`: cr2_slice calculation
 
 - **Overflow Protection**:
-  - CRX decoder tile calculations (`sonycc.cpp`)
+  - Sony YCC decoder tile calculations (`sonycc.cpp`)
+  - Thumbnail allocation sizes (`thumb_utils.cpp`)
   - File seek offset calculations (INT64 casts)
+
+These fork patches coexist with the upstream fixes above and are exercised by the security
+test suite in `tests/test_security_fixes.cpp` (62 checks).
 
 ### Build System
 
