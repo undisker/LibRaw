@@ -1,17 +1,26 @@
 name: Release
 
 # Builds LibRaw (library + sample tools) on native Windows, macOS and Linux
-# runners and, when a version tag (v*) is pushed, publishes the per-platform
-# zip archives to a GitHub Release.
+# runners and publishes the per-platform zip archives to a GitHub Release.
 #
-# Trigger manually (workflow_dispatch) to produce downloadable build artifacts
-# without publishing a release.
+# Publishing happens either:
+#   * automatically when a version tag (v*) is pushed, or
+#   * manually via "Run workflow" (workflow_dispatch) with the `tag` input set
+#     to the version to publish (the workflow creates the tag + release).
+#
+# Running workflow_dispatch with an empty `tag` only produces downloadable
+# build artifacts without publishing a release.
 
 on:
   push:
     tags:
       - 'v*'
   workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Version tag to publish, e.g. v0.22.0-undisker.1 (creates the tag + release). Leave empty to only build artifacts.'
+        required: false
+        default: ''
 
 # Cancel an older in-progress run of this workflow for the same ref when a new
 # one starts (avoids stuck queued jobs piling up).
@@ -70,7 +79,8 @@ jobs:
       - name: Package
         shell: bash
         run: |
-          VER="${GITHUB_REF_NAME:-dev}"
+          VER="${{ github.event.inputs.tag }}"
+          [ -n "$VER" ] || VER="${GITHUB_REF_NAME:-dev}"
           PKG="libraw-${VER}-${{ matrix.platform }}"
           mkdir -p "stage/${PKG}"
           # library + public headers + cmake package files
@@ -93,7 +103,8 @@ jobs:
   release:
     name: Publish GitHub Release
     needs: build
-    if: startsWith(github.ref, 'refs/tags/')
+    # Publish on a tag push, or on a manual run that supplied a tag to publish.
+    if: startsWith(github.ref, 'refs/tags/') || (github.event_name == 'workflow_dispatch' && github.event.inputs.tag != '')
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -107,6 +118,10 @@ jobs:
       - name: Create / update release
         uses: softprops/action-gh-release@v2
         with:
+          # On a tag push this is the pushed tag; on a manual run it is the
+          # `tag` input, and the action creates the tag at the run's commit.
+          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
+          target_commitish: ${{ github.sha }}
           files: artifacts/**/*.zip
           generate_release_notes: true
           fail_on_unmatched_files: true
