@@ -1,3 +1,7 @@
 # Local build artifacts (not tracked)
 build_dll/
 libs/
+# lcms2 (Little-CMS) DLL + source clone, provisioned locally for the Viewer
+# PhotoProcessing pipeline (built via dependencies/lcms2/build_windows.bat)
+lcms2.dll
+dependencies/
