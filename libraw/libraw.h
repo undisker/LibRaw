@@ -168,6 +168,17 @@ extern "C"
   DllDef void libraw_set_fbdd_noiserd(libraw_data_t *lr, int value);
   DllDef int libraw_get_raw_height(libraw_data_t *lr);
   DllDef int libraw_get_raw_width(libraw_data_t *lr);
+  /* undisker patch: direct CFA access for the external develop pipeline.
+     raw_image is valid after libraw_unpack(); geometry gives the full raw
+     frame, the visible area and its top/left margins; levels are the black /
+     maximum and the per-channel black plane; cam_mul is the camera WB. */
+  DllDef unsigned short *libraw_undisker_raw_image(libraw_data_t *lr);
+  DllDef void libraw_undisker_raw_geometry(libraw_data_t *lr, int *raw_w,
+                                           int *raw_h, int *vis_w, int *vis_h,
+                                           int *top, int *left);
+  DllDef void libraw_undisker_levels(libraw_data_t *lr, float *black,
+                                     float *maximum, float cblack4[4]);
+  DllDef void libraw_undisker_cam_mul(libraw_data_t *lr, float mul[4]);
   DllDef int libraw_get_iheight(libraw_data_t *lr);
   DllDef int libraw_get_iwidth(libraw_data_t *lr);
   DllDef float libraw_get_cam_mul(libraw_data_t *lr, int index);

@@ -420,6 +420,45 @@ extern "C"
     return lr->sizes.raw_height;
   }
 
+  /* undisker patch: direct CFA access for the external develop pipeline */
+  DllDef unsigned short *libraw_undisker_raw_image(libraw_data_t *lr)
+  {
+    if (!lr)
+      return NULL;
+    return lr->rawdata.raw_image;
+  }
+  DllDef void libraw_undisker_raw_geometry(libraw_data_t *lr, int *raw_w,
+                                           int *raw_h, int *vis_w, int *vis_h,
+                                           int *top, int *left)
+  {
+    if (!lr)
+      return;
+    if (raw_w) *raw_w = lr->sizes.raw_width;
+    if (raw_h) *raw_h = lr->sizes.raw_height;
+    if (vis_w) *vis_w = lr->sizes.width;
+    if (vis_h) *vis_h = lr->sizes.height;
+    if (top)   *top = lr->sizes.top_margin;
+    if (left)  *left = lr->sizes.left_margin;
+  }
+  DllDef void libraw_undisker_levels(libraw_data_t *lr, float *black,
+                                     float *maximum, float cblack4[4])
+  {
+    if (!lr)
+      return;
+    if (black)   *black = (float)lr->color.black;
+    if (maximum) *maximum = (float)lr->color.maximum;
+    if (cblack4)
+      for (int i = 0; i < 4; i++)
+        cblack4[i] = (float)lr->color.cblack[i];
+  }
+  DllDef void libraw_undisker_cam_mul(libraw_data_t *lr, float mul[4])
+  {
+    if (!lr || !mul)
+      return;
+    for (int i = 0; i < 4; i++)
+      mul[i] = lr->color.cam_mul[i];
+  }
+
   DllDef int libraw_get_raw_width(libraw_data_t *lr)
   {
     if (!lr)
