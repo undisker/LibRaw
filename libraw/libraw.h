@@ -179,6 +179,11 @@ extern "C"
   DllDef void libraw_undisker_levels(libraw_data_t *lr, float *black,
                                      float *maximum, float cblack4[4]);
   DllDef void libraw_undisker_cam_mul(libraw_data_t *lr, float mul[4]);
+  DllDef void libraw_undisker_effective_levels(libraw_data_t *lr,
+                                               float cblack4[4],
+                                               float *maximum);
+  DllDef unsigned libraw_undisker_filters(libraw_data_t *lr);
+  DllDef void libraw_undisker_xtrans(libraw_data_t *lr, char pattern[36]);
   DllDef int libraw_get_iheight(libraw_data_t *lr);
   DllDef int libraw_get_iwidth(libraw_data_t *lr);
   DllDef float libraw_get_cam_mul(libraw_data_t *lr, int index);

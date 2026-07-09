@@ -458,6 +458,83 @@ extern "C"
     for (int i = 0; i < 4; i++)
       mul[i] = lr->color.cam_mul[i];
   }
+  /* Effective per-channel black levels + saturation as dcraw_process would
+     see them after LibRaw::adjust_bl(): the cblack[6..] repeating pattern
+     block (where e.g. Fujifilm X-Trans stores its ~1022 pedestal) is folded
+     into the returned values. Read-only replication of adjust_bl's folding
+     (adjust_bl itself is protected and not idempotent), so this is safe to
+     call any number of times. cblack4[] comes back ABSOLUTE (base black
+     included); a non-uniform pattern remainder (rare) is approximated by the
+     block minimum. */
+  DllDef void libraw_undisker_effective_levels(libraw_data_t *lr,
+                                               float cblack4[4],
+                                               float *maximum)
+  {
+    if (!lr)
+      return;
+    unsigned cb[4];
+    for (int i = 0; i < 4; i++)
+      cb[i] = lr->color.cblack[i];
+    unsigned base = lr->color.black;
+    unsigned p4 = lr->color.cblack[4], p5 = lr->color.cblack[5];
+    const unsigned *blk = &lr->color.cblack[6];
+    unsigned filters = lr->idata.filters;
+    if (filters > 1000 && (p4 + 1) / 2 == 1 && (p5 + 1) / 2 == 1)
+    {
+      /* 2x2 block: fold each cell into its Bayer channel (dcraw clrs map) */
+      int clrs[4], lastg = -1, gcnt = 0;
+      for (int c = 0; c < 4; c++)
+      {
+        int row = c / 2, col = c % 2;
+        clrs[c] = (filters >> ((((row << 1) & 14) | (col & 1)) << 1)) & 3;
+        if (clrs[c] == 1)
+        {
+          gcnt++;
+          lastg = c;
+        }
+      }
+      if (gcnt > 1 && lastg >= 0)
+        clrs[lastg] = 3;
+      for (int c = 0; c < 4; c++)
+        cb[clrs[c]] += blk[(c / 2 % p4) * p5 + (c % 2 % p5)];
+      p4 = p5 = 0;
+    }
+    else if (filters <= 1000 && p4 == 1 && p5 == 1)
+    {
+      for (int c = 0; c < 4; c++)
+        cb[c] += blk[0];
+      p4 = p5 = 0;
+    }
+    if (p4 && p5)
+    {
+      unsigned mn = blk[0];
+      for (unsigned c = 1; c < p4 * p5; c++)
+        if (blk[c] < mn)
+          mn = blk[c];
+      base += mn;
+    }
+    if (cblack4)
+      for (int i = 0; i < 4; i++)
+        cblack4[i] = (float)(cb[i] + base);
+    if (maximum)
+      *maximum = (float)lr->color.maximum;
+  }
+  DllDef unsigned libraw_undisker_filters(libraw_data_t *lr)
+  {
+    if (!lr)
+      return 0;
+    return lr->idata.filters;
+  }
+  /* The 6x6 X-Trans CFA period, margin-adjusted so [row%6][col%6] indexes
+     visible-area coordinates (0=R 1=G 2=B). Meaningful when filters==9. */
+  DllDef void libraw_undisker_xtrans(libraw_data_t *lr, char pattern[36])
+  {
+    if (!lr || !pattern)
+      return;
+    for (int r = 0; r < 6; r++)
+      for (int c = 0; c < 6; c++)
+        pattern[r * 6 + c] = lr->idata.xtrans[r][c];
+  }
 
   DllDef int libraw_get_raw_width(libraw_data_t *lr)
   {
