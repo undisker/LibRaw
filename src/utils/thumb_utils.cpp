@@ -264,7 +264,6 @@ void LibRaw::kodak_thumb_loader()
   libraw_internal_data.unpacker_data.load_flags = s_flags;
 }
 
-// ������� thumbnail �� �����, ������ thumb_format � ������������ � ��������
 
 int LibRaw::thumbOK(INT64 maxsz)
 {

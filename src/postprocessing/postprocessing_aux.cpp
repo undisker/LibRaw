@@ -140,13 +140,19 @@ void LibRaw::wavelet_denoise()
 
   if (iwidth < 65 || iheight < 65)
     return;
+  if (int64_t(iwidth) * int64_t(iheight) >= 0x15540000LL)
+    return; // ensure pixel count less then 358M so total allocation size is less then 4GB
 
   while (maximum << scale < 0x10000)
     scale++;
   maximum <<= --scale;
   black <<= scale;
   FORC4 cblack[c] <<= scale;
-  /* SECURITY FIX: Check for integer overflow in size calculation */
+  /* SECURITY FIX: Check for integer overflow in size calculation.
+     NB upstream dropped the `size = iheight * iwidth` assignment when it added
+     the int64 pixel-count guard above, leaving `size` uninitialised in this
+     OpenMP variant; the checked assignment below is what keeps this path
+     correct. Do not "simplify" it back to the upstream form. */
   size_t safe_size_omp = safe_alloc_size_2d(iheight, iwidth, 1);
   if (safe_size_omp == 0 || safe_size_omp >= 0x15550000)
     return;

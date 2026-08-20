@@ -86,7 +86,7 @@ libraw_processed_image_t *LibRaw::dcraw_make_mem_thumb(int *errcode)
   {
     ushort exif[5];
     int mk_exif = 0;
-    if (strcmp(T.thumb + 6, "Exif"))
+    if (memcmp(T.thumb + 6, "Exif\0",5))
       mk_exif = 1;
 
     int dsize = T.tlength + mk_exif * (sizeof(exif) + sizeof(tiff_hdr));
@@ -257,7 +257,10 @@ int LibRaw::copy_mem_image(void *scan0, int stride, int bgr)
   {
     int c, col;
     int soff = flip_index(row, 0);
-    uchar *bufp = ((uchar *)scan0) + row * stride;
+    /* size_t widening of row * stride comes from upstream (avoids a 32-bit
+       overflow on very large outputs); the declarations stay row-local so the
+       loop above can be parallelised. */
+    uchar *bufp = ((uchar *)scan0) + size_t(row) * size_t(stride);
     uchar *ppm = bufp;
     ushort *ppm2 = (ushort *)bufp;
     // keep trivial decisions in the outer loop for speed

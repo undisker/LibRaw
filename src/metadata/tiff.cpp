@@ -1533,6 +1533,7 @@ int LibRaw::parse_tiff_ifd(INT64 base)
         unsigned MakN_order, m_sorder = order;
         unsigned MakN_length;
         unsigned pos_in_original_raw;
+		memset(mbuf, 0, sizeof(mbuf));
         fread(mbuf, 1, 6, ifp);
 
         if (!strcmp(mbuf, "Adobe"))
@@ -2073,6 +2074,17 @@ void LibRaw::apply_tiff()
   if (raw >= 0 && !load_raw)
     switch (tiff_compress)
     {
+    case 32766:
+      if (!dng_version && !strncasecmp(make, "Sony", 4) &&
+          tiff_ifd[raw].phint == 32803 && tiff_ifd[raw].samples == 1 &&
+          (tiff_bps == 12 || tiff_bps == 14) && raw_width > 0 &&
+          raw_height > 0)
+      {
+        load_raw = &LibRaw::sony_arw6_load_raw;
+        tiff_bps = 14;
+        break;
+      }
+      break;
     case 32767:
       if (!dng_version &&
           tiff_ifd[raw].bytes == INT64(raw_width) * INT64(raw_height))

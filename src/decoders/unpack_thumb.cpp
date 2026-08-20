@@ -312,9 +312,9 @@ int LibRaw::unpack_thumb(void)
               total_size += tiff_ifd[pifd].strip_byte_counts[i];
             if (total_size != (unsigned)t_length) // recalculate colors
             {
-              if (total_size == T.twidth * T.tlength * 3)
+              if (total_size == T.twidth * T.theight * 3)
                 T.tcolors = 3;
-              else if (total_size == T.twidth * T.tlength)
+              else if (total_size == T.twidth * T.theight)
                 T.tcolors = 1;
             }
             T.tlength = unsigned(total_size);
@@ -379,7 +379,10 @@ int LibRaw::unpack_thumb(void)
 			return LIBRAW_NO_THUMBNAIL; // 16-bit thumb, but parsed for
                                              // more bits
         int o_bps = (imgdata.rawparams.options & LIBRAW_RAWOPTIONS_USE_PPM16_THUMBS) ? 2 : 1;
-        int o_length = T.twidth * T.theight * t_colors * o_bps;
+
+		THUMB_SIZE_CHECKWH(T.twidth, (INT64(T.theight)*INT64(o_bps)));
+
+		int o_length = T.twidth * T.theight * t_colors * o_bps;
         int i_length = T.twidth * T.theight * t_colors * 2;
 
 		THUMB_SIZE_CHECKTNZ(o_length);
