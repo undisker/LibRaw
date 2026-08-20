@@ -6,12 +6,39 @@ This is a security-patched fork of LibRaw with safety improvements and build sys
 enhancements, kept in sync with the upstream [LibRaw/LibRaw](https://github.com/LibRaw/LibRaw)
 `master` branch.
 
-## Latest Upstream Sync (June 2026)
+Panvyo Viewer ships a shared library built from this fork. **[BINARIES.md](BINARIES.md)**
+is the authoritative description of how that `raw.dll` / `libraw.dylib` / `libraw.so` is
+produced, which symbols the Viewer requires, what each `LIBRAW_ENABLE_*` switch costs in
+supported formats, and the procedure for the next upstream sync.
 
-The fork has been merged up to the latest upstream `master`, the most recent included
-change being **PR #799** (Hasselblad X2D II 100C support). The sync was reviewed with a
-comparative audit (no regressions; all fork-specific protections retained). Highlights
-adopted from upstream:
+## Latest Upstream Sync (August 2026)
+
+Merged up to upstream `master` at **df226ea** (PR #846), 35 commits past the previous
+sync point. Conflicts were confined to the three files where this fork replaced raw
+arithmetic with checked arithmetic; in each case the fork's checked version was kept and
+the upstream addition applied on top. See the merge commit for the worked resolutions -
+including `wavelet_denoise`, where upstream's current code leaves `size` uninitialised in
+the OpenMP variant that this fork builds.
+
+Adopted in this sync:
+
+- **New decoder**: Sony ARW6 CRAW HQ (`src/decoders/sony_arw6.cpp`) - tiled streams,
+  stream version 1, non-16-aligned heights, Adobe-matching highlight handling, adjusted
+  black/white/linear_max points.
+- **New cameras**: Sony ILCE-7M5, Canon R50V, Sony A1 II model-string cleanup, Olympus
+  metadata rework.
+- **Hardening**: read buffers zeroed before `fread`; FP DNG tile-index and `ifd->bps`
+  checks plus a `convertFloatToInt` overflow guard; `open_bayer()` input validation and a
+  minimum-size floor in `vng_interpolate`; crx plane size checked against
+  `rawparams.max_raw_memory_mb` and an int32 overflow guard; Olympus 14-bit `wbits`
+  validation; PPM16 thumbnails checked against `LIBRAW_MAX_THUMBNAIL_MB`;
+  `trimSpaces`/`removeExcessiveSpaces` empty-string handling.
+
+## Previous Upstream Sync (June 2026)
+
+Merged up to **PR #799** (Hasselblad X2D II 100C support), reviewed with a comparative
+audit (no regressions; all fork-specific protections retained). Highlights adopted from
+upstream:
 
 - **Security / hardening**:
   - Stack-memory / previous-image metadata exposure fix in `tiff.cpp` (reported by DMSAN)
@@ -50,8 +77,22 @@ test suite in `tests/test_security_fixes.cpp` (62 checks).
 ### Build System
 
 - CMake configuration with automatic dependency detection
+- OpenMP enabled by default (61 parallel loops; ~2.9x on AHD demosaic, 4 cores) and
+  `CMAKE_BUILD_TYPE` defaulted to `Release`, so a plain `cmake ..` cannot accidentally
+  produce an unoptimised, single-threaded library
 - Support for **zlib-ng** (preferred, produces `zlib1.dll`)
-- Dependencies: zlib-ng, libjpeg-turbo, lcms2, jasper
+- Optional dependencies: zlib-ng, libjpeg-turbo, lcms2, jasper - see
+  [BINARIES.md](BINARIES.md) section 4 for what each one costs when disabled
+- Per-platform scripts (`build_windows.bat`, `build_linux.sh`, `build_macos.sh`) and a
+  release workflow that builds and tests on all three platforms
+
+### Fork-only C API
+
+`libraw_undisker_raw_image`, `_raw_geometry`, `_levels`, `_effective_levels`,
+`_cam_mul`, `_filters`, `_xtrans` give a C caller direct access to the undemosaiced CFA
+buffer, its geometry, the effective black/white levels and the Bayer / X-Trans 6x6
+pattern - what Panvyo Viewer's Develop pipeline needs and what the stock C API does not
+expose.
 
 ---
 
