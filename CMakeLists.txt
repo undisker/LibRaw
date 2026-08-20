@@ -63,6 +63,7 @@ set(LIBRAW_SOURCES
     src/decoders/olympus14.cpp
     src/decoders/pana8.cpp
     src/decoders/smal.cpp
+    src/decoders/sony_arw6.cpp
     src/decoders/sonycc.cpp
     src/decoders/unpack.cpp
     src/decoders/unpack_thumb.cpp
