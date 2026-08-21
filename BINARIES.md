@@ -206,36 +206,49 @@ knowing before someone "optimises" it away in the other direction:
   preview fast path works in a `NO_JPEG` build. Only `T.tcolors` is guessed
   rather than parsed.
 
-### Open issue: the released binary is built with all of them off
+### How the release gets zlib and libjpeg-turbo
 
-`.github/workflows/release.yml` configures with `-DLIBRAW_ENABLE_ZLIB=OFF
--DLIBRAW_ENABLE_JPEG=OFF -DLIBRAW_ENABLE_LCMS2=OFF -DLIBRAW_ENABLE_JASPER=OFF`,
-so the released `raw.dll` cannot open Deflate DNGs or lossy DNGs, even though
-the Viewer's Windows payload already ships `zlib1.dll` beside it
-(`installer/stage.py`). `build_windows.bat` builds the opposite way. Before the
-next release, pick one:
+`cmake/build-deps.cmake` builds both from pinned sources into one prefix, with
+the same single command on all three platforms:
 
-1. **Full-feature (recommended).** Enable zlib and JPEG in `release.yml`,
-   installing the dev packages on the runners (or vendoring as
-   `build_windows.bat` does). Windows then also needs the libjpeg-API DLL —
-   `jpeg62.dll` from libjpeg-turbo, which is *not* the same thing as the
-   already-shipped `turbojpeg.dll` — added to `WINDOWS_RUNTIME_DLLS`, plus
-   attribution entries in `installer/ATTRIBUTIONS.txt`.
-2. **Dependency-free.** Keep the switches off and correct the Viewer's format
-   documentation to state that Deflate and lossy DNG are unsupported.
+```sh
+cmake -DPREFIX="$PWD/deps" -DJOBS=4 [-DOSX_ARCHS="arm64;x86_64"] -P cmake/build-deps.cmake
+cmake -S . -B build -DCMAKE_PREFIX_PATH="$PWD/deps" \
+      -DLIBRAW_ENABLE_ZLIB=ON -DLIBRAW_ENABLE_JPEG=ON
+```
 
-Doing neither leaves the product claiming DNG support it does not have for two
-DNG variants.
+Not vcpkg / Homebrew / apt, for three reasons found by trying them:
 
-Whichever is chosen, the Viewer already finds out at run time instead of
-assuming: `libraw_capabilities()` returns a bitmask from
-`libraw/libraw_const.h` with `LIBRAW_CAPS_ZLIB = 1<<6`,
-`LIBRAW_CAPS_JPEG = 1<<7`, `LIBRAW_CAPS_X3FTOOLS = 1<<4`.
-`uViewerLibRaw.pas` resolves it as an optional symbol and turns it into
-`LibRawMissingFeatureNote`, so a DNG that fails on an under-configured DLL says
-*why* rather than reporting a generic decode error. Keep exporting
-`libraw_capabilities` and `libraw_version` — the Viewer's diagnostics depend on
-both.
+- **macOS.** The release is a universal binary. A Homebrew libjpeg-turbo is
+  built for the host architecture only and cannot satisfy both slices. Built
+  through the script it inherits `OSX_ARCHS` and comes out universal too.
+- **Linux.** Distro *static* archives are not compiled `-fPIC`, so they cannot
+  be linked into a shared library at all — `relocation R_X86_64_PC32 against
+  'z_errmsg' can not be used when making a shared object`. Anything built here
+  is position-independent.
+- **One code path**, with versions pinned rather than whatever the runner image
+  carries. To bump either, change the tag in `cmake/build-deps.cmake`.
+
+Both are built **shared**, deliberately. Statically linking them saves nothing
+worth having — LibRaw's own code grows only ~9.5 KB when both are enabled, so
+the dependency *is* the size wherever it goes — and it costs a lot: a CVE in
+either becomes a LibRaw rebuild instead of a one-file replacement, and the
+application cannot share one copy with its other consumers (Panvyo Viewer
+already ships `zlib1.dll` for libtiff and its own compression code).
+
+zlib-ng is used in `ZLIB_COMPAT` mode: a drop-in `libz.so.1` / `zlib1.dll` with
+the standard zlib ABI, faster at inflate — which *is* the deflate-DNG path.
+libjpeg-turbo is built with `WITH_TURBOJPEG=OFF`, because LibRaw uses only the
+libjpeg API and leaving the TurboJPEG API out avoids building and shipping a
+second copy of the codec. The result is `libjpeg.so.62` / `jpeg62.dll` — note
+that this is **not** the `turbojpeg.dll` the Viewer already ships, which
+exports the `tj*` API and no `jpeg_*` symbols at all, so it cannot serve
+LibRaw.
+
+Licensing is unaffected by the link mode: zlib's licence asks for nothing in a
+binary distribution, and libjpeg-turbo's (IJG + BSD-3-Clause + zlib) requires
+the same acknowledgement whether it is linked statically or dynamically. Both
+are noted in the Viewer's `installer/ATTRIBUTIONS.txt`.
 
 ---
 
@@ -304,7 +317,8 @@ After merging:
 - [ ] `ctest` green (`SecurityFixes`, `PipelineConsistency`).
 - [ ] OpenMP on for every platform (`test_pipeline_consistency` prints the
       thread count it used); Windows payload carries `vcomp140.dll`.
-- [ ] Dependency switches match the decision in section 4 on all platforms.
+- [ ] zlib and JPEG on (`libraw_capabilities()` returns bits 6 and 7); the
+      dependency runtime is packaged beside the library.
 - [ ] Every symbol in section 2 present in the built binary.
 - [ ] Correct file name (`raw.dll` / `libraw.dylib` / `libraw.so`), real file
       rather than a symlink, `RPATH=$ORIGIN` / `@rpath` applied.
