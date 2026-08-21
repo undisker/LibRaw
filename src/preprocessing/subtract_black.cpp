@@ -39,40 +39,62 @@ int LibRaw::subtract_black_internal()
       int dmax = 0;
       if (C.cblack[4] && C.cblack[5])
       {
-// max-reduction needs OpenMP 3.1+ (201107); MSVC default /openmp is 2.0 and
-// rejects reduction(max:), so fall back to a correct serial scan there.
-#if defined(LIBRAW_USE_OPENMP) && (_OPENMP >= 201107)
-#pragma omp parallel for reduction(max : dmax)
+// reduction(max:) needs OpenMP 3.1+ (201107) and MSVC's default /openmp is
+// 2.0, so accumulate the maximum per thread and merge it in a critical section
+// instead. This loop performs the black subtraction as well as the maximum, so
+// guarding the pragma out entirely would serialise the whole pass; the form
+// below stays parallel on every compiler that has OpenMP at all.
+#if defined(LIBRAW_USE_OPENMP)
+#pragma omp parallel
 #endif
-        for (int q = 0; q < size; q++)
         {
-          for (unsigned c = 0; c < 4; c++)
+          int tmax = 0;
+#if defined(LIBRAW_USE_OPENMP)
+#pragma omp for
+#endif
+          for (int q = 0; q < size; q++)
           {
-            int val = imgdata.image[q][c];
-            val -= C.cblack[6 + q / S.iwidth % C.cblack[4] * C.cblack[5] +
-                            q % S.iwidth % C.cblack[5]];
-            val -= cblk[c];
-            imgdata.image[q][c] = CLIP(val);
-            if (dmax < val) dmax = val;
+            for (unsigned c = 0; c < 4; c++)
+            {
+              int val = imgdata.image[q][c];
+              val -= C.cblack[6 + q / S.iwidth % C.cblack[4] * C.cblack[5] +
+                              q % S.iwidth % C.cblack[5]];
+              val -= cblk[c];
+              imgdata.image[q][c] = CLIP(val);
+              if (tmax < val) tmax = val;
+            }
           }
+#if defined(LIBRAW_USE_OPENMP)
+#pragma omp critical(subtract_black_dmax)
+#endif
+          if (dmax < tmax) dmax = tmax;
         }
       }
       else
       {
-// max-reduction needs OpenMP 3.1+ (201107); MSVC default /openmp is 2.0 and
-// rejects reduction(max:), so fall back to a correct serial scan there.
-#if defined(LIBRAW_USE_OPENMP) && (_OPENMP >= 201107)
-#pragma omp parallel for reduction(max : dmax)
+// Per-thread maximum merged under critical - see the note above.
+#if defined(LIBRAW_USE_OPENMP)
+#pragma omp parallel
 #endif
-        for (int q = 0; q < size; q++)
         {
-          for (unsigned c = 0; c < 4; c++)
+          int tmax = 0;
+#if defined(LIBRAW_USE_OPENMP)
+#pragma omp for
+#endif
+          for (int q = 0; q < size; q++)
           {
-            int val = imgdata.image[q][c];
-            val -= cblk[c];
-            imgdata.image[q][c] = CLIP(val);
-            if (dmax < val) dmax = val;
+            for (unsigned c = 0; c < 4; c++)
+            {
+              int val = imgdata.image[q][c];
+              val -= cblk[c];
+              imgdata.image[q][c] = CLIP(val);
+              if (tmax < val) tmax = val;
+            }
           }
+#if defined(LIBRAW_USE_OPENMP)
+#pragma omp critical(subtract_black_dmax)
+#endif
+          if (dmax < tmax) dmax = tmax;
         }
       }
       C.data_maximum = dmax & 0xffff;
@@ -87,14 +109,23 @@ int LibRaw::subtract_black_internal()
       ushort *p = (ushort *)imgdata.image;
       int dmax = 0;
       const int n = S.iheight * S.iwidth * 4;
-// max-reduction needs OpenMP 3.1+ (201107); MSVC default /openmp is 2.0 and
-// rejects reduction(max:), so fall back to a correct serial scan there.
-#if defined(LIBRAW_USE_OPENMP) && (_OPENMP >= 201107)
-#pragma omp parallel for reduction(max : dmax)
+// Per-thread maximum merged under critical - see the note above.
+#if defined(LIBRAW_USE_OPENMP)
+#pragma omp parallel
 #endif
-      for (int idx = 0; idx < n; idx++)
-        if (dmax < p[idx])
-          dmax = p[idx];
+      {
+        int tmax = 0;
+#if defined(LIBRAW_USE_OPENMP)
+#pragma omp for
+#endif
+        for (int idx = 0; idx < n; idx++)
+          if (tmax < p[idx])
+            tmax = p[idx];
+#if defined(LIBRAW_USE_OPENMP)
+#pragma omp critical(subtract_black_dmax)
+#endif
+        if (dmax < tmax) dmax = tmax;
+      }
       C.data_maximum = dmax;
     }
     return 0;
