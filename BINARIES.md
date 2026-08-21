@@ -227,13 +227,15 @@ next release, pick one:
 Doing neither leaves the product claiming DNG support it does not have for two
 DNG variants.
 
-Whichever is chosen, the Viewer can find out at run time instead of assuming:
-`libraw_capabilities()` returns a bitmask from `libraw/libraw_const.h` with
-`LIBRAW_CAPS_ZLIB = 1<<6`, `LIBRAW_CAPS_JPEG = 1<<7`,
-`LIBRAW_CAPS_X3FTOOLS = 1<<4`. Resolving that one extra optional symbol in
-`uViewerLibRaw.pas` would let the "this RAW file cannot be opened" message say
-*why* — a DLL without zlib rather than a corrupt file — which is exactly the
-kind of silent feature loss `uLibLoad` was written to eliminate.
+Whichever is chosen, the Viewer already finds out at run time instead of
+assuming: `libraw_capabilities()` returns a bitmask from
+`libraw/libraw_const.h` with `LIBRAW_CAPS_ZLIB = 1<<6`,
+`LIBRAW_CAPS_JPEG = 1<<7`, `LIBRAW_CAPS_X3FTOOLS = 1<<4`.
+`uViewerLibRaw.pas` resolves it as an optional symbol and turns it into
+`LibRawMissingFeatureNote`, so a DNG that fails on an under-configured DLL says
+*why* rather than reporting a generic decode error. Keep exporting
+`libraw_capabilities` and `libraw_version` — the Viewer's diagnostics depend on
+both.
 
 ---
 
