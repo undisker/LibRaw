@@ -38,10 +38,15 @@ jobs:
         include:
           - os: windows-latest
             platform: windows-x64
-            # MSVC's default /openmp is OpenMP 2.0, which cannot compile the
-            # 3.0+ pragmas in the codebase (collapse, max-reduction); build the
-            # Windows release single-threaded for now.
-            cmake_extra: -DLIBRAW_ENABLE_OPENMP=OFF
+            # OpenMP is on here like everywhere else. MSVC's default /openmp is
+            # OpenMP 2.0, but the codebase no longer needs more than that: the
+            # max accumulation in subtract_black.cpp is a per-thread local
+            # merged under `critical`, and the only other 3.0+ construct,
+            # collapse(2) in dht_demosaic.cpp, is guarded upstream behind
+            # _MSC_VER and loses nothing (its outer loop runs over image
+            # height). /openmp links vcomp140.dll, which ships with the VC++
+            # redistributable - see BINARIES.md section 3.
+            cmake_extra: ""
           - os: macos-latest
             platform: macos-universal
             # One universal (arm64 + x86_64) build on the readily-available
