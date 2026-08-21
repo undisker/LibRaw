@@ -147,32 +147,36 @@ decode from a single thread at a time, which is what that variant supports.
 LCMS2 and JasPer into `dependencies/bin/`, then LibRaw against them, and copies
 out `raw.dll`.
 
-Windows OpenMP needs one decision. MSVC's default `/openmp` is OpenMP 2.0, which
-rejects `collapse(2)` and `reduction(max:)`. The sources already guard both
-(`src/demosaic/dht_demosaic.cpp` behind `_MSC_VER`,
-`src/preprocessing/subtract_black.cpp` behind `_OPENMP >= 201107`), so a default
-`/openmp` build compiles — but it silently falls back to serial scans in those
-loops. For a parallel Windows build use LLVM's OpenMP runtime instead:
+**OpenMP on Windows works with MSVC's default `/openmp`** and is enabled in
+`release.yml` like every other platform. MSVC's `/openmp` is OpenMP 2.0, but
+the codebase does not need more than that:
 
-```
-cmake -S . -B build -A x64 -DLIBRAW_ENABLE_OPENMP=ON ^
-  -DOpenMP_CXX_FLAGS="/openmp:llvm" -DOpenMP_CXX_LIB_NAMES="libomp" ^
-  -DOpenMP_libomp_LIBRARY="libomp.lib"
-```
+- `subtract_black.cpp` accumulates its maximum per thread and merges it in a
+  `critical` section rather than using `reduction(max:)` (OpenMP 3.1). All
+  three of those loops also perform the black subtraction itself, so this is
+  what keeps the whole pass parallel on MSVC rather than only the reduction.
+- `collapse(2)` in `dht_demosaic.cpp` is guarded upstream behind `_MSC_VER`.
+  The fallback costs nothing — the outer loop runs over image height, which is
+  thousands of iterations.
+- Every omp-for loop variable is a signed `int`, as OpenMP 2.0 requires.
 
-(VS2019 16.9+; CMake 3.30+ can use `-DOpenMP_RUNTIME_MSVC=llvm` instead.)
-`release.yml` currently passes `-DLIBRAW_ENABLE_OPENMP=OFF` for Windows, so the
-**released Windows `raw.dll` is single-threaded** and gives up the speed-ups in
-section 1. Whichever way this is settled, confirm the result: build
-`test_pipeline_consistency` and check it reports more than one thread, and
-re-run it — it exists specifically to prove the parallel paths stay
-bit-identical to the serial ones.
+So do not reintroduce `-DLIBRAW_ENABLE_OPENMP=OFF`, and if you add a pragma
+using an OpenMP 3.0+ feature, either guard it or express it in 2.0 terms.
+`/openmp:llvm` (VS2019 16.9+, or `-DOpenMP_RUNTIME_MSVC=llvm` on CMake 3.30+)
+is available if a future construct genuinely needs 3.1, but it ships
+`libomp140.x86_64.dll` instead of the stock runtime, so prefer staying on 2.0.
+
+Confirm the result rather than assuming it: `test_pipeline_consistency` prints
+the thread count it ran with, and exists specifically to prove the parallel
+paths stay bit-identical to the serial ones — including a dedicated section for
+`subtract_black_internal`'s three branches.
 
 The DLL imports the Visual C++ runtime (`vcruntime140.dll`,
-`vcruntime140_1.dll`, `msvcp140.dll`). Those must be in the payload;
-`installer/stage.py` in the Viewer repo already fails the build if they are
-missing, because without them `raw.dll` fails to load and RAW support vanishes
-with no error message.
+`vcruntime140_1.dll`, `msvcp140.dll`) and, with OpenMP on, the OpenMP runtime
+`vcomp140.dll`. All four ship in the VC++ redistributable and must be in the
+payload; `installer/stage.py` in the Viewer repo lists them in
+`WINDOWS_VCRUNTIME` and fails the build if any is missing, because without them
+`raw.dll` fails to load and RAW support vanishes with no error message.
 
 ---
 
@@ -296,7 +300,8 @@ After merging:
 
 - [ ] Built from a tagged commit of this fork, `CMAKE_BUILD_TYPE=Release`.
 - [ ] `ctest` green (`SecurityFixes`, `PipelineConsistency`).
-- [ ] OpenMP status known and intended for every platform in the release.
+- [ ] OpenMP on for every platform (`test_pipeline_consistency` prints the
+      thread count it used); Windows payload carries `vcomp140.dll`.
 - [ ] Dependency switches match the decision in section 4 on all platforms.
 - [ ] Every symbol in section 2 present in the built binary.
 - [ ] Correct file name (`raw.dll` / `libraw.dylib` / `libraw.so`), real file
