@@ -90,6 +90,8 @@ void LibRaw::convert_to_rgb_loop(float out_cam[3][4])
   // bins are a cross-thread reduction, so each thread accumulates into a private
   // copy and merges once at the end (matches the OpenMP idiom used elsewhere in
   // the library). Without OpenMP the block runs once and writes ghist directly.
+  bool hist_alloc_failed = false;
+
   if (libraw_internal_data.internal_output_params.raw_color)
   {
     const int colors = imgdata.idata.colors;
@@ -100,6 +102,13 @@ void LibRaw::convert_to_rgb_loop(float out_cam[3][4])
 #if defined(LIBRAW_USE_OPENMP)
       histbuf_t hist =
           (histbuf_t)::calloc(4, sizeof(int) * LIBRAW_HISTOGRAM_SIZE);
+      // A thread that cannot get its private bin set must not touch it, and
+      // must not silently drop its rows either - that would yield a quietly
+      // wrong histogram. Record the failure and raise it after the region;
+      // an exception may not escape an OpenMP structured block.
+      if (!hist)
+#pragma omp critical(histmerge)
+        hist_alloc_failed = true;
 #else
       histbuf_t hist = ghist;
 #endif
@@ -108,6 +117,8 @@ void LibRaw::convert_to_rgb_loop(float out_cam[3][4])
 #endif
       for (int row = 0; row < S.height; row++)
       {
+        if (!hist)
+          continue;
         ushort *img = imgdata.image[(size_t)row * S.width];
         for (int col = 0; col < S.width; col++, img += 4)
           for (int c = 0; c < colors; c++)
@@ -116,13 +127,16 @@ void LibRaw::convert_to_rgb_loop(float out_cam[3][4])
 #if defined(LIBRAW_USE_OPENMP)
 #pragma omp critical(histmerge)
       {
-        for (int c = 0; c < 4; c++)
-          for (int b = 0; b < LIBRAW_HISTOGRAM_SIZE; b++)
-            ghist[c][b] += hist[c][b];
+        if (hist)
+          for (int c = 0; c < 4; c++)
+            for (int b = 0; b < LIBRAW_HISTOGRAM_SIZE; b++)
+              ghist[c][b] += hist[c][b];
       }
       ::free(hist);
 #endif
     }
+    if (hist_alloc_failed)
+      throw LIBRAW_EXCEPTION_ALLOC;
   }
   else if (imgdata.idata.colors == 3)
   {
@@ -133,6 +147,13 @@ void LibRaw::convert_to_rgb_loop(float out_cam[3][4])
 #if defined(LIBRAW_USE_OPENMP)
       histbuf_t hist =
           (histbuf_t)::calloc(4, sizeof(int) * LIBRAW_HISTOGRAM_SIZE);
+      // A thread that cannot get its private bin set must not touch it, and
+      // must not silently drop its rows either - that would yield a quietly
+      // wrong histogram. Record the failure and raise it after the region;
+      // an exception may not escape an OpenMP structured block.
+      if (!hist)
+#pragma omp critical(histmerge)
+        hist_alloc_failed = true;
 #else
       histbuf_t hist = ghist;
 #endif
@@ -161,13 +182,16 @@ void LibRaw::convert_to_rgb_loop(float out_cam[3][4])
 #if defined(LIBRAW_USE_OPENMP)
 #pragma omp critical(histmerge)
       {
-        for (int c = 0; c < 4; c++)
-          for (int b = 0; b < LIBRAW_HISTOGRAM_SIZE; b++)
-            ghist[c][b] += hist[c][b];
+        if (hist)
+          for (int c = 0; c < 4; c++)
+            for (int b = 0; b < LIBRAW_HISTOGRAM_SIZE; b++)
+              ghist[c][b] += hist[c][b];
       }
       ::free(hist);
 #endif
     }
+    if (hist_alloc_failed)
+      throw LIBRAW_EXCEPTION_ALLOC;
   }
   else if (imgdata.idata.colors == 4)
   {
@@ -178,6 +202,13 @@ void LibRaw::convert_to_rgb_loop(float out_cam[3][4])
 #if defined(LIBRAW_USE_OPENMP)
       histbuf_t hist =
           (histbuf_t)::calloc(4, sizeof(int) * LIBRAW_HISTOGRAM_SIZE);
+      // A thread that cannot get its private bin set must not touch it, and
+      // must not silently drop its rows either - that would yield a quietly
+      // wrong histogram. Record the failure and raise it after the region;
+      // an exception may not escape an OpenMP structured block.
+      if (!hist)
+#pragma omp critical(histmerge)
+        hist_alloc_failed = true;
 #else
       histbuf_t hist = ghist;
 #endif
@@ -207,13 +238,16 @@ void LibRaw::convert_to_rgb_loop(float out_cam[3][4])
 #if defined(LIBRAW_USE_OPENMP)
 #pragma omp critical(histmerge)
       {
-        for (int c = 0; c < 4; c++)
-          for (int b = 0; b < LIBRAW_HISTOGRAM_SIZE; b++)
-            ghist[c][b] += hist[c][b];
+        if (hist)
+          for (int c = 0; c < 4; c++)
+            for (int b = 0; b < LIBRAW_HISTOGRAM_SIZE; b++)
+              ghist[c][b] += hist[c][b];
       }
       ::free(hist);
 #endif
     }
+    if (hist_alloc_failed)
+      throw LIBRAW_EXCEPTION_ALLOC;
   }
 }
 
