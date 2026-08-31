@@ -5,3 +5,10 @@ libs/
 # PhotoProcessing pipeline (built via dependencies/lcms2/build_windows.bat)
 lcms2.dll
 dependencies/
+
+# Build trees and fetched dependencies created by
+# Panvyo's scripts/build-native-libs.* - 71 MB of CMake output, all of it
+# reproducible from the script and none of it belonging in the fork.
+_build/
+build_rel/
+deps/
