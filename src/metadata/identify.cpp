@@ -290,6 +290,9 @@ void LibRaw::identify()
 	  { 9631728,  2532, 1902, 0, 0,  0, 0, 96, 0x61, 0, 0, "Alcatel", "5035D" },
 	  { 31850496, 4608, 3456, 0, 0,  0, 0,  0, 0x94, 0, 0, "GITUP", "GIT2 4:3" },
 	  { 23887872, 4608, 2592, 0, 0,  0, 0,  0, 0x94, 0, 0, "GITUP", "GIT2 16:9" },
+	  //          {23887872, 4608, 3456, 0, 0, 0, 0, 80, 0x94, 0, 0, "SJCAM",
+	  //          "M20"}, // 12-bit, low nibbles first; conflict w/ GIT2 16:9 above
+	  //          (same byte count, first match wins) - the host application's dump dialog opens it
 	  { 32257024, 4624, 3488, 8, 2, 16, 2,  0, 0x94, 0, 0, "GITUP", "GIT2P 4:3" },
 	  { 24192768, 4624, 2616, 8, 2, 16, 2,  0, 0x94, 0, 0, "GITUP", "GIT2P 16:9" },
 	  { 18016000, 4000, 2252, 0, 0,  0, 0,  0, 0x94, 0, 0, "GITUP", "G3DUO 16:9" },
