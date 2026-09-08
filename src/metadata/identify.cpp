@@ -293,6 +293,10 @@ void LibRaw::identify()
 	  { 32257024, 4624, 3488, 8, 2, 16, 2,  0, 0x94, 0, 0, "GITUP", "GIT2P 4:3" },
 	  { 24192768, 4624, 2616, 8, 2, 16, 2,  0, 0x94, 0, 0, "GITUP", "GIT2P 16:9" },
 	  { 18016000, 4000, 2252, 0, 0,  0, 0,  0, 0x94, 0, 0, "GITUP", "G3DUO 16:9" },
+	  // SJCAM SJ6 LEGEND .raw: 12-bit, two pixels in three bytes with the low nibbles first
+	  // (p0 = b0 | (b1 & 15) << 8, p1 = b1 >> 4 | b2 << 4). lf 16 reads a three-byte bite,
+	  // 64 swaps the pair back into order; saturation is 0xEFF, which adjust_maximum finds.
+	  { 15972480, 3760, 2832, 0, 0,  0, 0, 80, 0x94, 0, 0, "SJCAM", "SJ6 LEGEND" },
 	  //          {24000000, 4000, 3000, 0, 0, 0, 0, 0, 0x94, 0, 0, "GITUP",
       //          "G3DUO 4:3"}, // Conflict w/ Samsung WB550
 
