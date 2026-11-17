@@ -1,6 +1,6 @@
 /* -*- C++ -*-
  * File: libraw.h
- * Copyright 2008-2025 LibRaw LLC (info@libraw.org)
+ * Copyright 2008-2026 LibRaw LLC (info@libraw.org)
  * Created: Sat Mar  8, 2008
  *
  * LibRaw C++ interface
@@ -206,7 +206,7 @@ class DllDef LibRaw
 public:
   libraw_data_t imgdata;
 
-  LibRaw(unsigned int flags = LIBRAW_OPTIONS_NONE);
+  LibRaw(unsigned int flags = LIBRAW_OPTIONS_NONE, unsigned caller_abi = LIBRAW_ABI_VERSION);
   libraw_output_params_t *output_params_ptr() { return &imgdata.params; }
 #ifndef LIBRAW_NO_IOSTREAMS_DATASTREAM
   int open_file(const char *fname,
@@ -277,8 +277,10 @@ public:
   static int simplify_make_model(unsigned *_maker_index, char *_make, unsigned _make_buf_size, char *_model, unsigned _model_buf_size);
 
   /* helpers */
+  unsigned caller_abi_version();
   static unsigned capabilities();
   static const char *version();
+  static unsigned abi_version();
   static int versionNumber();
   static const char **cameraList();
   static int cameraCount();
@@ -406,6 +408,15 @@ protected:
   virtual void pana8_decode_loop(void*);
   int pana8_decode_strip(void*, int); // return: 0 if OK, non-zero on error
 
+  /* Nikon HE parallel decoder loops */
+  virtual int nikonhe_decode_loop1(int num_tiles, int tile_height, const void *tile_array, void *dec_ptr);
+  virtual int nikonhe_decode_loop2(int num_tiles, int tile_height, void *dec_ptr);
+  virtual int nikonhe_decode_loop3(int num_tiles, int tile_height, void *dec_ptr);
+  /* helper functions to be called from implemented loops */
+  int nikonhe_decode_loop1_body(int i, int num_tiles, int tile_height, const void *tile_array, void *dec_ptr);
+  int nikonhe_decode_loop2_body(int i, int num_tiles, int tile_height, void *dec_ptr);
+  int nikonhe_decode_loop3_body(int i, int num_tiles, int tile_height, void *dec_ptr);
+
   int FCF(int row, int col)
   {
     int rr, cc;
@@ -530,6 +541,7 @@ protected:
 #ifdef LIBRAW_LIBRARY_BUILD
 #include "internal/libraw_internal_funcs.h"
 #endif
+  unsigned _caller_abi_passed;
 };
 
 #ifdef LIBRAW_LIBRARY_BUILD

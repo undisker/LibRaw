@@ -61,6 +61,7 @@ set(LIBRAW_SOURCES
     src/decoders/kodak_decoders.cpp
     src/decoders/load_mfbacks.cpp
     src/decoders/olympus14.cpp
+    src/decoders/nikonhe.cpp
     src/decoders/pana8.cpp
     src/decoders/smal.cpp
     src/decoders/sony_arw6.cpp

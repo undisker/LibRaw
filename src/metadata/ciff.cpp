@@ -1,5 +1,5 @@
 /* -*- C++ -*-
- * Copyright 2019-2025 LibRaw LLC (info@libraw.org)
+ * Copyright 2019-2026 LibRaw LLC (info@libraw.org)
  *
  LibRaw uses code from dcraw.c -- Dave Coffin's raw photo decoder,
  dcraw.c is copyright 1997-2018 by Dave Coffin, dcoffin a cybercom o net.
@@ -124,7 +124,8 @@ void LibRaw::parse_ciff(INT64 offset, int length, int depth)
     {
       fread(make, 64, 1, ifp);
       make[63] = 0;
-      fseek(ifp, strbuflen(make) - 63, SEEK_CUR);
+	  int mlen = (int)strbuflen(make);
+      fseek(ifp, mlen - 63, SEEK_CUR);
       fread(model, 64, 1, ifp);
       model[63] = 0;
 
