@@ -1,6 +1,6 @@
 # LibRaw - Patched Version (undisker)
 
-**Version: 0.22.0-patched-undisker** (tracking upstream LibRaw `master`, ABI/shlib current `26`)
+**Version: 0.23.0-patched-undisker** (tracking upstream LibRaw `master`, snapshot 202611, ABI/shlib current `27`)
 
 This is a security-patched fork of LibRaw with safety improvements and build system
 enhancements, kept in sync with the upstream [LibRaw/LibRaw](https://github.com/LibRaw/LibRaw)
@@ -11,7 +11,40 @@ is the authoritative description of how that `raw.dll` / `libraw.dylib` / `libra
 produced, which symbols the host application requires, what each `LIBRAW_ENABLE_*` switch costs in
 supported formats, and the procedure for the next upstream sync.
 
-## Latest Upstream Sync (August 2026)
+## Latest Upstream Sync (November 2026)
+
+Merged up to upstream `master` at **70513b5** (PR #893, public snapshot 202611), 42 commits
+past the previous sync point. Three conflicts: the version header (upstream numbers, fork
+tail), `crx.cpp` (line endings only - the fork stores it LF, upstream CRLF; the checked
+allocation sizes are kept) and `wavelet_denoise` (upstream restored the `size` assignment;
+the fork's checked variant is kept).
+
+Adopted in this sync:
+
+- **New decoder**: Nikon HE / HE\* (`src/decoders/nikonhe.cpp`, added to the CMake list).
+- **Hardening**: CR3/CRX output and plane buffer limits, 64-bit offsets and clamped
+  quantisation-table indices; X3F size and offset checks; TIFF strip-size arithmetic in
+  64 bits; CIFF 32/64-bit conversion; lossless-DNG `tiff_samples` check; Sony YCbCr
+  decode-cache index mask; Panasonic 8 shift mask; `getreal` rejects NaN/Inf; DNG tone
+  curve initialised before `OpcodeList2`; Kodak body-name overrun.
+- **Correctness**: X-Trans interpolation now reads original pixel values (not ones already
+  adjusted by the previous tile) and finds the half-size green site from the CFA pattern;
+  Canon R50V metadata; better Hasselblad model parsing; Nikon Z5 II colour matrix.
+- **API/ABI**: version 0.23.0, shlib current 27, new `LIBRAW_ABI_VERSION`;
+  `libraw_colordata_t`, `libraw_raw_unpack_params_t` and the Canon makernotes struct each
+  gained a field, so **struct offsets moved**. The host application is unaffected - it only calls
+  functions and mirrors `libraw_processed_image_t`, which did not change - but any caller
+  that reads `libraw_data_t` fields by offset must be rebuilt against the new headers.
+
+Performance work done on top of this sync (output bit-identical, see
+[BINARIES.md](BINARIES.md) section 1):
+
+- Linear, VNG, DCB and AAHD demosaic were single-threaded; they now run in parallel.
+- AHD (the default): cheaper homogeneity map and direction merge, CIELab conversion
+  inlined into the tile loop.
+- `pre_interpolate` green copy parallelised; `copy_bayer` no longer calls `fcol()` per pixel.
+
+## Previous Upstream Sync (August 2026)
 
 Merged up to upstream `master` at **df226ea** (PR #846), 35 commits past the previous
 sync point. Conflicts were confined to the three files where this fork replaced raw
@@ -77,7 +110,7 @@ test suite in `tests/test_security_fixes.cpp` (62 checks).
 ### Build System
 
 - CMake configuration with automatic dependency detection
-- OpenMP enabled by default (61 parallel loops; ~2.9x on AHD demosaic, 4 cores) and
+- OpenMP enabled by default (every Bayer demosaic is parallel; ~3x on AHD, 4 cores) and
   `CMAKE_BUILD_TYPE` defaulted to `Release`, so a plain `cmake ..` cannot accidentally
   produce an unoptimised, single-threaded library
 - Support for **zlib-ng** (preferred, produces `zlib1.dll`)

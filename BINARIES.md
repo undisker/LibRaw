@@ -23,17 +23,39 @@ it, and a static link would bury the decoder inside the application executable, 
 LibRaw CVE could only be fixed by re-shipping the whole application. As a
 separate DLL, a decoder fix is a one-file patch.
 
-**Performance.** LibRaw carries 61 `#pragma omp` parallel loops across the
-decoders, demosaic and postprocessing. They are compiled out unless the build
-enables OpenMP, and stock builds frequently do not. Measured on this fork
-(4000×3000 synthetic Bayer frame, 4-core x86-64 Linux, `-O2`, full
-`open_bayer` → `unpack` → `dcraw_process` → `dcraw_make_mem_image`):
+**Performance.** LibRaw's decoders, demosaic and postprocessing are parallelised
+with OpenMP. The pragmas are compiled out unless the build enables OpenMP, and
+stock builds frequently do not; this fork additionally parallelises the
+demosaics upstream leaves single-threaded (linear, VNG, DCB, AAHD) and trims the
+AHD inner loops. Measured on this fork (6000×4000 synthetic Bayer frame, 4-core
+x86-64 Linux, `-O2`, full `open_bayer` → `unpack` → `dcraw_process` →
+`dcraw_make_mem_image`, 8-bit output, best of several runs on a shared VM - read
+the ratios, not the absolute numbers):
 
-| Demosaic quality | 1 thread | 4 threads | speed-up |
+| Demosaic quality | Aug-2026 build, 4 threads | this build, 4 threads | change |
 |---|---|---|---|
-| 0 — linear   | 0.490 s | 0.312 s | 1.6× |
-| 2 — PPG      | 0.506 s | 0.200 s | 2.5× |
-| 3 — AHD      | 1.136 s | 0.396 s | 2.9× |
+| 0 — linear   | 430 ms  | 221 ms  | 1.9× |
+| 1 — VNG      | 2691 ms | 820 ms  | 3.3× |
+| 2 — PPG      | 250 ms  | 204 ms  | 1.2× |
+| 3 — AHD (default) | 560 ms | 475 ms | 1.2× |
+| 4 — DCB      | 3281 ms | 1319 ms | 2.5× |
+| 11 — DHT     | 1172 ms | 1131 ms | — |
+| 12 — AAHD    | 4704 ms | 1660 ms | 2.8× |
+| 3, half-size | 89 ms   | 65 ms   | 1.4× |
+
+AHD single-threaded went from 1717 ms to 1547 ms on the same frame, and scales
+about 3× from one thread to four.
+
+All of this is **bit-identical** to the previous build: the output hash of every
+row above is unchanged, and a sweep over frame sizes from 22×22 up, four Bayer
+phases, all seven qualities and 1–16 threads against the old single-threaded
+result showed no difference. The rule that makes that possible, and that any
+further parallelisation has to follow: a loop is only shared out between threads
+when no iteration reads what another iteration of the same loop writes. Passes
+that update the image in place and read already-updated neighbours
+(`dcb_nyquist`, `dcb_pp`, `dcb_refinement`, the tail of `dcb_color_full`,
+`fbdd_*`, AAHD's `hide_hots` and `refine_ihv_dirs`) depend on the scan order and
+stay sequential on purpose.
 
 `dcraw_process` is on the host application's interactive path whenever the embedded
 preview is unusable (`rdmFullOnly`, or `rdmAuto` on a file whose preview is
@@ -67,7 +89,7 @@ Optional (each missing one silently disables one feature):
 
 Also always exported, and useful for diagnostics rather than decoding:
 
-    libraw_version         "0.22.0-patched-undisker" for our build
+    libraw_version         "0.23.0-patched-undisker" for our build
     libraw_versionNumber
     libraw_capabilities    bitmask of what this DLL was compiled with
 
@@ -298,12 +320,24 @@ outright wrong for us (it dropped the `size = iheight * iwidth` assignment in
 `wavelet_denoise`, leaving `size` uninitialised in the OpenMP variant this fork
 builds).
 
+The November-2026 sync added a fourth kind: `src/decoders/crx.cpp` conflicted
+over its whole length because the fork stores it with LF line endings and
+upstream with CRLF. Do not resolve that by hand - strip the `\r` from the base
+and upstream stages and run `git merge-file` on the three normalised files; the
+real differences then merge cleanly.
+
+Upstream's struct layouts are not frozen between snapshots (that sync moved
+offsets in `libraw_colordata_t` and `libraw_raw_unpack_params_t`). The host application
+is insulated because it goes through functions and `libraw_processed_image_t`
+only; keep it that way, and add an accessor to `src/libraw_c_api.cpp` rather
+than mirroring another struct in Pascal.
+
 After merging:
 
 1. Add any new `src/**/*.cpp` to `LIBRAW_SOURCES` in `CMakeLists.txt`. Upstream
    maintains the autotools/MSVC makefiles but not our CMake list, so a new
-   decoder will otherwise link out silently. (The June-2026 sync added
-   `src/decoders/sony_arw6.cpp` this way.)
+   decoder will otherwise link out silently. (`src/decoders/sony_arw6.cpp` and
+   `src/decoders/nikonhe.cpp` were added this way.)
 2. Rebuild and run `ctest`.
 3. Check the host application's symbols are all still exported:
    `nm -D --defined-only build/bin/libraw.so | grep libraw_` — or `dumpbin

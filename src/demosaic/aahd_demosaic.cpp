@@ -302,6 +302,9 @@ void AAHD::evaluate_ahd()
    */
   for (int d = 0; d < 2; ++d)
   {
+#if defined(LIBRAW_USE_OPENMP)
+#pragma omp parallel for schedule(static)
+#endif
     for (int i = 0; i < nr_width * nr_height; ++i)
     {
       ushort3 rgb;
@@ -350,7 +353,22 @@ void AAHD::evaluate_ahd()
    }
    }
    * Lab */
-  for (int i = 0; i < libraw.imgdata.sizes.iheight; ++i)
+  /* A row increments homo[] up to 3 rows away from itself, so rows cannot
+     simply be shared out. Increments commute, though: cut the image into
+     bands taller than twice that reach, then run the even bands in parallel
+     and after them the odd ones - two bands of the same parity never touch
+     the same cell. */
+  const int homo_band = 16;
+  const int homo_nbands =
+      (libraw.imgdata.sizes.iheight + homo_band - 1) / homo_band;
+  for (int parity = 0; parity < 2; ++parity)
+  {
+#if defined(LIBRAW_USE_OPENMP)
+#pragma omp parallel for schedule(guided)
+#endif
+  for (int band = parity; band < homo_nbands; band += 2)
+  for (int i = band * homo_band;
+       i < MIN((band + 1) * homo_band, int(libraw.imgdata.sizes.iheight)); ++i)
   {
     int moff = nr_offset(i + nr_margin, nr_margin);
     for (int j = 0; j < libraw.imgdata.sizes.iwidth; j++, ++moff)
@@ -401,6 +419,10 @@ void AAHD::evaluate_ahd()
       }
     }
   }
+  }
+#if defined(LIBRAW_USE_OPENMP)
+#pragma omp parallel for schedule(guided)
+#endif
   for (int i = 0; i < libraw.imgdata.sizes.iheight; ++i)
   {
     int moff = nr_offset(i + nr_margin, nr_margin);
@@ -469,9 +491,13 @@ void AAHD::evaluate_ahd()
 
 void AAHD::combine_image()
 {
-  for (int i = 0, i_out = 0; i < libraw.imgdata.sizes.iheight; ++i)
+#if defined(LIBRAW_USE_OPENMP)
+#pragma omp parallel for schedule(guided)
+#endif
+  for (int i = 0; i < libraw.imgdata.sizes.iheight; ++i)
   {
     int moff = nr_offset(i + nr_margin, nr_margin);
+    int i_out = i * libraw.imgdata.sizes.iwidth;
     for (int j = 0; j < libraw.imgdata.sizes.iwidth; j++, ++moff, ++i_out)
     {
       if (ndir[moff] & HOT)
@@ -500,10 +526,19 @@ void AAHD::combine_image()
 
 void AAHD::refine_hv_dirs()
 {
+  /* Each of these two passes rewrites one checkerboard colour while reading
+     only the other one, so its rows are independent. refine_ihv_dirs() below
+     reads cells it has just rewritten and has to stay sequential. */
+#if defined(LIBRAW_USE_OPENMP)
+#pragma omp parallel for schedule(guided)
+#endif
   for (int i = 0; i < libraw.imgdata.sizes.iheight; ++i)
   {
     refine_hv_dirs(i, i & 1);
   }
+#if defined(LIBRAW_USE_OPENMP)
+#pragma omp parallel for schedule(guided)
+#endif
   for (int i = 0; i < libraw.imgdata.sizes.iheight; ++i)
   {
     refine_hv_dirs(i, (i & 1) ^ 1);
@@ -574,6 +609,10 @@ void AAHD::refine_hv_dirs(int i, int js)
  */
 void AAHD::make_ahd_greens()
 {
+  /* Reads sensor values only, writes the missing greens: rows independent */
+#if defined(LIBRAW_USE_OPENMP)
+#pragma omp parallel for schedule(guided)
+#endif
   for (int i = 0; i < libraw.imgdata.sizes.iheight; ++i)
   {
     make_ahd_gline(i);
@@ -693,10 +732,19 @@ void AAHD::make_ahd_rb_hv(int i)
 
 void AAHD::make_ahd_rb()
 {
+  /* Neither pass reads a value written by another row of the same pass:
+     make_ahd_rb_hv() reads sensor values and the finished greens,
+     make_ahd_rb_last() reads those plus what make_ahd_rb_hv() left. */
+#if defined(LIBRAW_USE_OPENMP)
+#pragma omp parallel for schedule(guided)
+#endif
   for (int i = 0; i < libraw.imgdata.sizes.iheight; ++i)
   {
     make_ahd_rb_hv(i);
   }
+#if defined(LIBRAW_USE_OPENMP)
+#pragma omp parallel for schedule(guided)
+#endif
   for (int i = 0; i < libraw.imgdata.sizes.iheight; ++i)
   {
     make_ahd_rb_last(i);

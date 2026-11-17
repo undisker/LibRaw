@@ -41,11 +41,23 @@
 
 #include "../../internal/dcraw_defs.h"
 
+/* OpenMP notes for this file.
+   A loop is parallelised only when no iteration reads a value that another
+   iteration of the same loop writes - typically a pass that fills one CFA
+   site class while reading the other, or writes a separate buffer.
+   dcb_nyquist(), dcb_pp(), dcb_refinement(), the last loop of
+   dcb_color_full(), fbdd_green(), fbdd_correction() and fbdd_correction2()
+   update the image in place and read already-updated neighbours, so their
+   result depends on the scan order; they are deliberately left sequential. */
+
 // interpolates green vertically and saves it to image3
 void LibRaw::dcb_ver(float (*image3)[3])
 {
   int row, col, u = width, indx;
 
+#ifdef LIBRAW_USE_OPENMP
+#pragma omp parallel for default(shared) private(row, col, indx) schedule(static)
+#endif
   for (row = 2; row < height - 2; row++)
     for (col = 2 + (FC(row, 2) & 1), indx = row * width + col; col < u - 2;
          col += 2, indx += 2)
@@ -60,6 +72,9 @@ void LibRaw::dcb_hor(float (*image2)[3])
 {
   int row, col, u = width, indx;
 
+#ifdef LIBRAW_USE_OPENMP
+#pragma omp parallel for default(shared) private(row, col, indx) schedule(static)
+#endif
   for (row = 2; row < height - 2; row++)
     for (col = 2 + (FC(row, 2) & 1), indx = row * width + col; col < u - 2;
          col += 2, indx += 2)
@@ -74,6 +89,9 @@ void LibRaw::dcb_color()
 {
   int row, col, c, d, u = width, indx;
 
+#ifdef LIBRAW_USE_OPENMP
+#pragma omp parallel for default(shared) private(row, col, c, indx) schedule(static)
+#endif
   for (row = 1; row < height - 1; row++)
     for (col = 1 + (FC(row, 1) & 1), indx = row * width + col,
         c = 2 - FC(row, col);
@@ -88,6 +106,9 @@ void LibRaw::dcb_color()
                             4.0);
     }
 
+#ifdef LIBRAW_USE_OPENMP
+#pragma omp parallel for default(shared) private(row, col, c, d, indx) schedule(static)
+#endif
   for (row = 1; row < height - 1; row++)
     for (col = 1 + (FC(row, 2) & 1), indx = row * width + col,
         c = FC(row, col + 1), d = 2 - c;
@@ -110,6 +131,9 @@ void LibRaw::dcb_color2(float (*image2)[3])
 {
   int row, col, c, d, u = width, indx;
 
+#ifdef LIBRAW_USE_OPENMP
+#pragma omp parallel for default(shared) private(row, col, c, indx) schedule(static)
+#endif
   for (row = 1; row < height - 1; row++)
     for (col = 1 + (FC(row, 1) & 1), indx = row * width + col,
         c = 2 - FC(row, col);
@@ -127,6 +151,9 @@ void LibRaw::dcb_color2(float (*image2)[3])
 			  );
     }
 
+#ifdef LIBRAW_USE_OPENMP
+#pragma omp parallel for default(shared) private(row, col, c, d, indx) schedule(static)
+#endif
   for (row = 1; row < height - 1; row++)
     for (col = 1 + (FC(row, 2) & 1), indx = row * width + col,
         c = FC(row, col + 1), d = 2 - c;
@@ -146,6 +173,9 @@ void LibRaw::dcb_color3(float (*image3)[3])
 {
   int row, col, c, d, u = width, indx;
 
+#ifdef LIBRAW_USE_OPENMP
+#pragma omp parallel for default(shared) private(row, col, c, indx) schedule(static)
+#endif
   for (row = 1; row < height - 1; row++)
     for (col = 1 + (FC(row, 1) & 1), indx = row * width + col,
         c = 2 - FC(row, col);
@@ -163,6 +193,9 @@ void LibRaw::dcb_color3(float (*image3)[3])
 			  );
     }
 
+#ifdef LIBRAW_USE_OPENMP
+#pragma omp parallel for default(shared) private(row, col, c, d, indx) schedule(static)
+#endif
   for (row = 1; row < height - 1; row++)
     for (col = 1 + (FC(row, 2) & 1), indx = row * width + col,
         c = FC(row, col + 1), d = 2 - c;
@@ -185,6 +218,9 @@ void LibRaw::dcb_decide(float (*image2)[3], float (*image3)[3])
   int row, col, c, d, u = width, v = 2 * u, indx;
   float current, current2, current3;
 
+#ifdef LIBRAW_USE_OPENMP
+#pragma omp parallel for default(shared) private(row, col, c, d, indx, current, current2, current3) schedule(static)
+#endif
   for (row = 2; row < height - 2; row++)
     for (col = 2 + (FC(row, 2) & 1), indx = row * width + col, c = FC(row, col);
          col < u - 2; col += 2, indx += 2)
@@ -249,6 +285,9 @@ void LibRaw::dcb_copy_to_buffer(float (*image2)[3])
 {
   int indx;
 
+#ifdef LIBRAW_USE_OPENMP
+#pragma omp parallel for default(shared) private(indx) schedule(static)
+#endif
   for (indx = 0; indx < height * width; indx++)
   {
     image2[indx][0] = image[indx][0]; // R
@@ -261,6 +300,9 @@ void LibRaw::dcb_restore_from_buffer(float (*image2)[3])
 {
   int indx;
 
+#ifdef LIBRAW_USE_OPENMP
+#pragma omp parallel for default(shared) private(indx) schedule(static)
+#endif
   for (indx = 0; indx < height * width; indx++)
   {
     image[indx][0] = ushort(image2[indx][0]); // R
@@ -327,12 +369,18 @@ void LibRaw::dcb_color_full()
 
   chroma = (float(*)[2])calloc(width * height, sizeof *chroma);
 
+#ifdef LIBRAW_USE_OPENMP
+#pragma omp parallel for default(shared) private(row, col, c, d, indx) schedule(static)
+#endif
   for (row = 1; row < height - 1; row++)
     for (col = 1 + (FC(row, 1) & 1), indx = row * width + col, c = FC(row, col),
         d = c / 2;
          col < u - 1; col += 2, indx += 2)
       chroma[indx][d] = float(image[indx][c] - image[indx][1]);
 
+#ifdef LIBRAW_USE_OPENMP
+#pragma omp parallel for default(shared) private(row, col, c, d, indx, f, g) schedule(static)
+#endif
   for (row = 3; row < height - 3; row++)
     for (col = 3 + (FC(row, 1) & 1), indx = row * width + col,
         c = 1 - FC(row, col) / 2, d = 1 - c;
@@ -370,6 +418,9 @@ void LibRaw::dcb_color_full()
           (f[0] * g[0] + f[1] * g[1] + f[2] * g[2] + f[3] * g[3]) /
           (f[0] + f[1] + f[2] + f[3]);
     }
+#ifdef LIBRAW_USE_OPENMP
+#pragma omp parallel for default(shared) private(row, col, c, d, indx, f, g) schedule(static)
+#endif
   for (row = 3; row < height - 3; row++)
     for (col = 3 + (FC(row, 2) & 1), indx = row * width + col,
         c = FC(row, col + 1) / 2;
@@ -460,6 +511,9 @@ void LibRaw::dcb_map()
 {
   int row, col, u = width, indx;
 
+#ifdef LIBRAW_USE_OPENMP
+#pragma omp parallel for default(shared) private(row, col, indx) schedule(static)
+#endif
   for (row = 1; row < height - 1; row++)
   {
     for (col = 1, indx = row * width + col; col < width - 1; col++, indx++)
@@ -486,6 +540,9 @@ void LibRaw::dcb_correction()
 {
   int current, row, col, u = width, v = 2 * u, indx;
 
+#ifdef LIBRAW_USE_OPENMP
+#pragma omp parallel for default(shared) private(current, row, col, indx) schedule(static)
+#endif
   for (row = 2; row < height - 2; row++)
     for (col = 2 + (FC(row, 2) & 1), indx = row * width + col; col < u - 2;
          col += 2, indx += 2)
@@ -511,6 +568,9 @@ void LibRaw::dcb_correction2()
 {
   int current, row, col, c, u = width, v = 2 * u, indx;
 
+#ifdef LIBRAW_USE_OPENMP
+#pragma omp parallel for default(shared) private(current, row, col, c, indx) schedule(static)
+#endif
   for (row = 4; row < height - 4; row++)
     for (col = 4 + (FC(row, 2) & 1), indx = row * width + col, c = FC(row, col);
          col < u - 4; col += 2, indx += 2)
@@ -644,6 +704,9 @@ void LibRaw::dcb_refinement()
 void LibRaw::rgb_to_lch(double (*image2)[3])
 {
   int indx;
+#ifdef LIBRAW_USE_OPENMP
+#pragma omp parallel for default(shared) private(indx) schedule(static)
+#endif
   for (indx = 0; indx < height * width; indx++)
   {
 
@@ -658,6 +721,9 @@ void LibRaw::rgb_to_lch(double (*image2)[3])
 void LibRaw::lch_to_rgb(double (*image2)[3])
 {
   int indx;
+#ifdef LIBRAW_USE_OPENMP
+#pragma omp parallel for default(shared) private(indx) schedule(static)
+#endif
   for (indx = 0; indx < height * width; indx++)
   {
 

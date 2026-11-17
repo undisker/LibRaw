@@ -274,29 +274,62 @@ void LibRaw::copy_bayer(unsigned short cblack[4], unsigned short *dmaxp)
 {
   // Both cropped and uncropped
   int maxHeight = MIN(int(S.height),int(S.raw_height)-int(S.top_margin));
+  /* Loop-invariant geometry, read once: the stores into imgdata.image below
+     are ushort, as are the size fields, so the compiler has to assume they
+     change and would otherwise reload every one of them for every pixel. */
+  const int maxWidth = MIN(int(S.width), int(S.raw_width) - int(S.left_margin));
+  const int left_margin = S.left_margin, top_margin = S.top_margin;
+  const size_t rpitch = S.raw_pitch;
+  const int iwidth = S.iwidth, shrink = IO.shrink;
+  const ushort *const rawimg = imgdata.rawdata.raw_image;
+  ushort (*const img)[4] = imgdata.image;
+  /* A plain 2x2 Bayer pattern (not X-Trans, not the 16x16 Leaf table): the
+     colour depends on the column parity only, so fcol() - an out-of-line
+     call - can be replaced by two values per row. */
+  const bool simple_bayer = imgdata.idata.filters > 1000;
 #if defined(LIBRAW_USE_OPENMP)
-#pragma omp parallel for schedule(dynamic) default(none) shared(dmaxp) firstprivate(cblack, maxHeight)
+#pragma omp parallel for schedule(dynamic, 16) default(shared) firstprivate(cblack, maxHeight)
 #endif
   for (int row = 0; row < maxHeight ; row++)
   {
     int col;
     unsigned short ldmax = 0;
-    for (col = 0; col < S.width && col + S.left_margin < S.raw_width; col++)
+    const ushort *src = rawimg + size_t(row + top_margin) * rpitch / 2 + left_margin;
+    ushort (*dst)[4] = img + size_t(row >> shrink) * iwidth;
+    if (simple_bayer)
     {
-      unsigned short val =
-          imgdata.rawdata.raw_image[(row + S.top_margin) * S.raw_pitch / 2 +
-                                    (col + S.left_margin)];
-      int cc = fcol(row, col);
-      if (val > cblack[cc])
+      const int cc2[2] = {fcol(row, 0), fcol(row, 1)};
+      const ushort cb2[2] = {cblack[cc2[0]], cblack[cc2[1]]};
+      for (col = 0; col < maxWidth; col++)
       {
-        val -= cblack[cc];
-        if (val > ldmax)
-          ldmax = val;
+        unsigned short val = src[col];
+        const ushort cb = cb2[col & 1];
+        if (val > cb)
+        {
+          val -= cb;
+          if (val > ldmax)
+            ldmax = val;
+        }
+        else
+          val = 0;
+        dst[col >> shrink][cc2[col & 1]] = val;
       }
-      else
-        val = 0;
-      imgdata.image[((row) >> IO.shrink) * S.iwidth + ((col) >> IO.shrink)][cc] = val;
     }
+    else
+      for (col = 0; col < maxWidth; col++)
+      {
+        unsigned short val = src[col];
+        int cc = fcol(row, col);
+        if (val > cblack[cc])
+        {
+          val -= cblack[cc];
+          if (val > ldmax)
+            ldmax = val;
+        }
+        else
+          val = 0;
+        dst[col >> shrink][cc] = val;
+      }
 #if defined(LIBRAW_USE_OPENMP)
 #pragma omp critical(dataupdate)
 #endif

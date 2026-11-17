@@ -174,7 +174,10 @@ int main(void)
   printf("OpenMP not enabled (serial build)\n");
 #endif
 
-  const int quals[] = {0, 3, 11}; // bilinear, AHD, DHT (all parallel paths)
+  // bilinear, VNG, PPG, AHD, DCB, DHT, AAHD - every Bayer demosaic has
+  // parallel loops. VNG splits the row range by thread and holds the rows at
+  // each split back; DCB and AAHD mix parallel passes with sequential ones.
+  const int quals[] = {0, 1, 2, 3, 4, 11, 12};
   int failures = 0;
 
   for (size_t i = 0; i < sizeof(quals) / sizeof(quals[0]); i++)
@@ -192,6 +195,16 @@ int main(void)
 #endif
     unsigned long long par1 = decode(bayer, W, H, q, &ok);
     unsigned long long par2 = decode(bayer, W, H, q, &ok); // determinism
+
+    // A thread count that does not divide the frame evenly and normally
+    // exceeds the core count: moves every per-thread split to an odd place.
+#ifdef _OPENMP
+    omp_set_num_threads(7);
+#endif
+    unsigned long long par7 = decode(bayer, W, H, q, &ok);
+#ifdef _OPENMP
+    omp_set_num_threads(maxthreads);
+#endif
 
     if (!ok)
     {
@@ -211,6 +224,14 @@ int main(void)
       printf("[FAIL] q=%-2d threaded output differs from 1-thread: "
              "%016llx != %016llx (DATA RACE)\n",
              q, par1, serial);
+      failures++;
+      continue;
+    }
+    if (serial != par7)
+    {
+      printf("[FAIL] q=%-2d 7-thread output differs from 1-thread: "
+             "%016llx != %016llx (DATA RACE)\n",
+             q, par7, serial);
       failures++;
       continue;
     }

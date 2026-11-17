@@ -86,7 +86,11 @@ void LibRaw::pre_interpolate()
       colors++;
     else
     {
-      for (row = FC(1, 0) >> 1; row < height; row += 2)
+      const int grow0 = FC(1, 0) >> 1;
+#ifdef LIBRAW_USE_OPENMP
+#pragma omp parallel for default(shared) private(row, col) schedule(static)
+#endif
+      for (row = grow0; row < height; row += 2)
         for (col = FC(row, 1) & 1; col < width; col += 2)
           image[row * width + col][1] = image[row * width + col][3];
       filters &= ~((filters & 0x55555555U) << 1);
@@ -124,17 +128,26 @@ void LibRaw::border_interpolate(int border)
 void LibRaw::lin_interpolate_loop(int *code, int size)
 {
   int row;
+  /* Rows are independent: a pixel only reads its neighbours' own CFA colour
+     (never written here) and only writes its own missing colours. */
+#ifdef LIBRAW_USE_OPENMP
+#pragma omp parallel for default(shared) schedule(static)
+#endif
   for (row = 1; row < height - 1; row++)
   {
     int col, *ip;
     ushort *pix;
+    int *rowcode = code + (row % size) * 16 * 32;
+    int cmod = 1 % size;
     for (col = 1; col < width - 1; col++)
     {
       int i;
       int sum[4];
       pix = image[row * width + col];
-      ip = code + ((((row % size) * 16) + (col % size)) * 32);
-      memset(sum, 0, sizeof sum);
+      ip = rowcode + cmod * 32;
+      if (++cmod == size)
+        cmod = 0;
+      sum[0] = sum[1] = sum[2] = sum[3] = 0;
       for (i = *ip++; i--; ip += 3)
         sum[ip[2]] += pix[ip[0]] << ip[1];
       for (i = colors; --i; ip += 2)
@@ -227,10 +240,10 @@ void LibRaw::vng_interpolate()
            +1, -1, +1,   +1, 0,  -120, +1, +0, +1,   +2, 0,  0x08, +1, +0, +2,
            -1, 0,  0x40, +1, +0, +2,   +1, 0,  0x10},
       chood[] = {-1, -1, -1, 0, -1, +1, 0, +1, +1, +1, +1, 0, +1, -1, 0, -1};
-  ushort(*brow[5])[4], *pix;
-  int prow = 8, pcol = 2, *ip, *code[16][16], gval[8], gmin, gmax, sum[4];
+  ushort(*brow[5])[4];
+  int prow = 8, pcol = 2, *ip, *code[16][16];
   int row, col, x, y, x1, x2, y1, y2, t, weight, grads, color, diag;
-  int g, diff, thold, num, c;
+  int g;
 
   if (width < 8 || height < 8) return;  // skip interploation on too small images
 
@@ -282,77 +295,117 @@ void LibRaw::vng_interpolate()
           *ip++ = 0;
       }
     }
-  brow[4] = (ushort(*)[4])calloc(width * 3, sizeof **brow);
-  for (row = 0; row < 3; row++)
-    brow[row] = brow[4] + row * width;
-  for (row = 2; row < height - 2; row++)
-  { /* Do VNG interpolation */
-    if (!((row - 2) % 256))
-      RUN_CALLBACK(LIBRAW_PROGRESS_INTERPOLATE, (row - 2) / 256 + 1,
-                   ((height - 3) / 256) + 1);
-    for (col = 2; col < width - 2; col++)
+  /* Do VNG interpolation.
+     Every output row is a pure function of the lin_interpolate()d rows
+     row-2..row+2: a finished row is only stored back two rows later, after
+     the last stencil that needs its old content. That makes the row range
+     splittable between threads, as long as the first two and the last two
+     rows of each thread's range are held back until every thread is done
+     (the neighbouring ranges still read them). */
+  RUN_CALLBACK(LIBRAW_PROGRESS_INTERPOLATE, 1, ((height - 3) / 256) + 1);
+  const int rfirst = 2, rlast = height - 2;
+  int maxthr = 1;
+#ifdef LIBRAW_USE_OPENMP
+  maxthr = omp_get_max_threads();
+  if (maxthr < 1)
+    maxthr = 1;
+#endif
+  brow[4] = (ushort(*)[4])calloc((size_t)maxthr * width * 5, sizeof **brow);
+#ifdef LIBRAW_USE_OPENMP
+#pragma omp parallel default(shared) num_threads(maxthr)
+#endif
+  {
+    int tid = 0, nthr = 1;
+#ifdef LIBRAW_USE_OPENMP
+    tid = omp_get_thread_num();
+    nthr = omp_get_num_threads();
+#endif
+    ushort(*tb)[4] = brow[4] + (size_t)tid * width * 5;
+    ushort(*head[2])[4] = {tb, tb + width};
+    ushort(*trow[4])[4] = {tb + 2 * width, tb + 3 * width, tb + 4 * width, 0};
+    const int rs = rfirst + int(INT64(rlast - rfirst) * tid / nthr);
+    const int re = rfirst + int(INT64(rlast - rfirst) * (tid + 1) / nthr);
+    const size_t rowbytes = (width - 4) * sizeof *image;
+    int nhead = 0;
+    int trw, tcol, tgval[8], tgmin, tgmax, tsum[4], tg, tdiff, tthold, tnum,
+        tcolor, tt, tc, *tip;
+    ushort *tpix;
+
+    for (trw = rs; trw < re; trw++)
     {
-      pix = image[row * width + col];
-      ip = code[row % prow][col % pcol];
-      memset(gval, 0, sizeof gval);
-      while ((g = ip[0]) != INT_MAX)
-      { /* Calculate gradients */
-        diff = ABS(pix[g] - pix[ip[1]]) << ip[2];
-        gval[ip[3]] += diff;
-        ip += 5;
-        if ((g = ip[-1]) == -1)
-          continue;
-        gval[g] += diff;
-        while ((g = *ip++) != -1)
-          gval[g] += diff;
-      }
-      ip++;
-      gmin = gmax = gval[0]; /* Choose a threshold */
-      for (g = 1; g < 8; g++)
+      for (tcol = 2; tcol < width - 2; tcol++)
       {
-        if (gmin > gval[g])
-          gmin = gval[g];
-        if (gmax < gval[g])
-          gmax = gval[g];
-      }
-      if (gmax == 0)
-      {
-        memcpy(brow[2][col], pix, sizeof *image);
-        continue;
-      }
-      thold = gmin + (gmax >> 1);
-      memset(sum, 0, sizeof sum);
-      color = fcol(row, col);
-      for (num = g = 0; g < 8; g++, ip += 2)
-      { /* Average the neighbors */
-        if (gval[g] <= thold)
+        tpix = image[trw * width + tcol];
+        tip = code[trw % prow][tcol % pcol];
+        memset(tgval, 0, sizeof tgval);
+        while ((tg = tip[0]) != INT_MAX)
+        { /* Calculate gradients */
+          tdiff = ABS(tpix[tg] - tpix[tip[1]]) << tip[2];
+          tgval[tip[3]] += tdiff;
+          tip += 5;
+          if ((tg = tip[-1]) == -1)
+            continue;
+          tgval[tg] += tdiff;
+          while ((tg = *tip++) != -1)
+            tgval[tg] += tdiff;
+        }
+        tip++;
+        tgmin = tgmax = tgval[0]; /* Choose a threshold */
+        for (tg = 1; tg < 8; tg++)
         {
-          FORCC
-          if (c == color && ip[1])
-            sum[c] += (pix[c] + pix[ip[1]]) >> 1;
-          else
-            sum[c] += pix[ip[0] + c];
-          num++;
+          if (tgmin > tgval[tg])
+            tgmin = tgval[tg];
+          if (tgmax < tgval[tg])
+            tgmax = tgval[tg];
+        }
+        if (tgmax == 0)
+        {
+          memcpy(trow[2][tcol], tpix, sizeof *image);
+          continue;
+        }
+        tthold = tgmin + (tgmax >> 1);
+        memset(tsum, 0, sizeof tsum);
+        tcolor = fcol(trw, tcol);
+        for (tnum = tg = 0; tg < 8; tg++, tip += 2)
+        { /* Average the neighbors */
+          if (tgval[tg] <= tthold)
+          {
+            for (tc = 0; tc < colors; tc++)
+              if (tc == tcolor && tip[1])
+                tsum[tc] += (tpix[tc] + tpix[tip[1]]) >> 1;
+              else
+                tsum[tc] += tpix[tip[0] + tc];
+            tnum++;
+          }
+        }
+        for (tc = 0; tc < colors; tc++)
+        { /* Save to buffer */
+          tt = tpix[tcolor];
+          if (tc != tcolor)
+            tt += (tsum[tc] - tsum[tcolor]) / tnum;
+          trow[2][tcol][tc] = CLIP(tt);
         }
       }
-      FORCC
-      { /* Save to buffer */
-        t = pix[color];
-        if (c != color)
-          t += (sum[c] - sum[color]) / num;
-        brow[2][col][c] = CLIP(t);
+      if (trw - 2 >= rs) /* Store the row finished two rows ago */
+      {
+        if (trw - 2 < rs + 2)
+          memcpy(head[nhead++] + 2, trow[0] + 2, rowbytes);
+        else
+          memcpy(image[(trw - 2) * width + 2], trow[0] + 2, rowbytes);
       }
+      for (tg = 0; tg < 4; tg++)
+        trow[(tg - 1) & 3] = trow[tg];
     }
-    if (row > 3) /* Write buffer to image */
-      memcpy(image[(row - 2) * width + 2], brow[0] + 2,
-             (width - 4) * sizeof *image);
-    for (g = 0; g < 4; g++)
-      brow[(g - 1) & 3] = brow[g];
+#ifdef LIBRAW_USE_OPENMP
+#pragma omp barrier
+#endif
+    for (tg = 0; tg < nhead; tg++)
+      memcpy(image[(rs + tg) * width + 2], head[tg] + 2, rowbytes);
+    if (re - 2 >= rs)
+      memcpy(image[(re - 2) * width + 2], trow[0] + 2, rowbytes);
+    if (re - 1 >= rs)
+      memcpy(image[(re - 1) * width + 2], trow[1] + 2, rowbytes);
   }
-  memcpy(image[(row - 2) * width + 2], brow[0] + 2,
-         (width - 4) * sizeof *image);
-  memcpy(image[(row - 1) * width + 2], brow[1] + 2,
-         (width - 4) * sizeof *image);
   free(brow[4]);
   free(code[0][0]);
 }

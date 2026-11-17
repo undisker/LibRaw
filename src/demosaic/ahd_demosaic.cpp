@@ -23,12 +23,19 @@
    the work of Keigo Hirakawa, Thomas Parks, and Paul Lee.
  */
 
+#ifdef LIBRAW_NOTHREADS
+/* File scope rather than local to cielab(), so that the AHD tile loop can
+   read the same tables directly. */
+static float ahd_cbrt_nothreads[0x10000], ahd_xyz_cam_nothreads[3][4];
+#endif
+
 void LibRaw::cielab(ushort rgb[3], short lab[3])
 {
   int c, i, j, k;
   float r, xyz[3];
 #ifdef LIBRAW_NOTHREADS
-  static float cbrt[0x10000], xyz_cam[3][4];
+#define cbrt ahd_cbrt_nothreads
+#define xyz_cam ahd_xyz_cam_nothreads
 #else
 #define cbrt tls->ahd_data.cbrt
 #define xyz_cam tls->ahd_data.xyz_cam
@@ -65,10 +72,31 @@ void LibRaw::cielab(ushort rgb[3], short lab[3])
   lab[0] = short(64 * (116 * xyz[1] - 16));
   lab[1] = short(64 * 500 * (xyz[0] - xyz[1]));
   lab[2] = short(64 * 200 * (xyz[1] - xyz[2]));
-#ifndef LIBRAW_NOTHREADS
 #undef cbrt
 #undef xyz_cam
-#endif
+}
+
+/* Same arithmetic as LibRaw::cielab(), for the per-pixel AHD loop: the
+   tables are passed in so the caller can look them up once per tile instead
+   of once per pixel, and the call can be inlined. */
+static inline void ahd_cielab_px(const ushort rgb[3], short lab[3],
+                                 const float *cbrt_tbl,
+                                 const float (*xyz_cam_tbl)[4], int ncolors)
+{
+  float xyz[3];
+  xyz[0] = xyz[1] = xyz[2] = 0.5;
+  for (int c = 0; c < ncolors; c++)
+  {
+    xyz[0] += xyz_cam_tbl[0][c] * rgb[c];
+    xyz[1] += xyz_cam_tbl[1][c] * rgb[c];
+    xyz[2] += xyz_cam_tbl[2][c] * rgb[c];
+  }
+  xyz[0] = cbrt_tbl[CLIP((int)xyz[0])];
+  xyz[1] = cbrt_tbl[CLIP((int)xyz[1])];
+  xyz[2] = cbrt_tbl[CLIP((int)xyz[2])];
+  lab[0] = short(64 * (116 * xyz[1] - 16));
+  lab[1] = short(64 * 500 * (xyz[0] - xyz[1]));
+  lab[2] = short(64 * 200 * (xyz[1] - xyz[2]));
 }
 
 void LibRaw::ahd_interpolate_green_h_and_v(
@@ -113,6 +141,15 @@ void LibRaw::ahd_interpolate_r_and_b_in_rgb_and_convert_to_cielab(
   ushort *pix_above;
   ushort *pix_below;
   int t1, t2;
+  /* rgb has 3 components per pixel here, so never read more than that */
+  const int ncolors = colors < 3 ? colors : 3;
+#ifdef LIBRAW_NOTHREADS
+  const float *cbrt_tbl = ahd_cbrt_nothreads;
+  const float (*xyz_cam_tbl)[4] = ahd_xyz_cam_nothreads;
+#else
+  const float *cbrt_tbl = tls->ahd_data.cbrt;
+  const float (*xyz_cam_tbl)[4] = tls->ahd_data.xyz_cam;
+#endif
 
   for (row = top + 1; row < rowlimit; row++)
   {
@@ -156,7 +193,7 @@ void LibRaw::ahd_interpolate_r_and_b_in_rgb_and_convert_to_cielab(
       rix[0][c] = CLIP(val);
       c = FC(row, col);
       rix[0][c] = pix[0][c];
-      cielab(rix[0], lix[0]);
+      ahd_cielab_px(rix[0], lix[0], cbrt_tbl, xyz_cam_tbl, ncolors);
     }
   }
 }
@@ -172,65 +209,87 @@ void LibRaw::ahd_interpolate_r_and_b_and_convert_to_cielab(
   }
 }
 
+/* L and a/b distance between two CIELab pixels. The squares are taken in
+   unsigned arithmetic: two shorts can differ by 65535, whose square does not
+   fit an int. */
+static inline void ahd_lab_diff(const short *p, const short *q, unsigned &ld,
+                                unsigned &abd)
+{
+  const int dl = p[0] - q[0];
+  const unsigned da = unsigned(p[1] - q[1]), db = unsigned(p[2] - q[2]);
+  ld = unsigned(dl < 0 ? -dl : dl);
+  abd = da * da + db * db;
+}
+
 void LibRaw::ahd_interpolate_build_homogeneity_map(
     int top, int left, short (*lab)[LIBRAW_AHD_TILE][LIBRAW_AHD_TILE][3],
     char (*out_homogeneity_map)[LIBRAW_AHD_TILE][2])
 {
   int row, col;
-  int tr;
-  int direction;
-  int i;
-  short(*lix)[3];
-  short(*lixs[2])[3];
-  short *adjacent_lix;
+  int tr, tc;
   unsigned ldiff[2][4], abdiff[2][4], leps, abeps;
-  static const int dir[4] = {-1, 1, -LIBRAW_AHD_TILE, LIBRAW_AHD_TILE};
   const int rowlimit = MIN(top + LIBRAW_AHD_TILE - 2, height - 4);
   const int collimit = MIN(left + LIBRAW_AHD_TILE - 2, width - 4);
-  int homogeneity;
-  char(*homogeneity_map_p)[2];
+  /* A distance is symmetric, so every pair of neighbours is measured once:
+     the "right" distance of a pixel is the "left" one of the next pixel, and
+     its "below" distance - kept here per column and per interpolation
+     direction - is the "above" one of the pixel under it. */
+  unsigned below_l[2][LIBRAW_AHD_TILE], below_ab[2][LIBRAW_AHD_TILE];
 
   memset(out_homogeneity_map, 0, 2 * LIBRAW_AHD_TILE * LIBRAW_AHD_TILE);
 
   for (row = top + 2; row < rowlimit; row++)
   {
     tr = row - top;
-    homogeneity_map_p = &out_homogeneity_map[tr][1];
-    for (direction = 0; direction < 2; direction++)
-    {
-      lixs[direction] = &lab[direction][tr][1];
-    }
+    char(*hmap)[2] = &out_homogeneity_map[tr][2];
+    const short(*lh)[3] = &lab[0][tr][2]; /* horizontally interpolated */
+    const short(*lv)[3] = &lab[1][tr][2]; /* vertically interpolated */
+    const bool first_row = (row == top + 2);
 
-    for (col = left + 2; col < collimit; col++)
-    {
-      homogeneity_map_p++;
+    /* indices: 0 left, 1 right, 2 above, 3 below */
+    ahd_lab_diff(lh[0], lh[-1], ldiff[0][1], abdiff[0][1]);
+    ahd_lab_diff(lv[0], lv[-1], ldiff[1][1], abdiff[1][1]);
 
-      for (direction = 0; direction < 2; direction++)
+    for (col = left + 2, tc = 2; col < collimit; col++, tc++, hmap++, lh++, lv++)
+    {
+      ldiff[0][0] = ldiff[0][1];
+      abdiff[0][0] = abdiff[0][1];
+      ldiff[1][0] = ldiff[1][1];
+      abdiff[1][0] = abdiff[1][1];
+      ahd_lab_diff(lh[0], lh[1], ldiff[0][1], abdiff[0][1]);
+      ahd_lab_diff(lv[0], lv[1], ldiff[1][1], abdiff[1][1]);
+      if (first_row)
       {
-        lix = ++lixs[direction];
-        for (i = 0; i < 4; i++)
-        {
-          adjacent_lix = lix[dir[i]];
-          ldiff[direction][i] = ABS(lix[0][0] - adjacent_lix[0]);
-          abdiff[direction][i] = SQR(lix[0][1] - adjacent_lix[1]) +
-                                 SQR(lix[0][2] - adjacent_lix[2]);
-        }
+        ahd_lab_diff(lh[0], lh[-LIBRAW_AHD_TILE], ldiff[0][2], abdiff[0][2]);
+        ahd_lab_diff(lv[0], lv[-LIBRAW_AHD_TILE], ldiff[1][2], abdiff[1][2]);
       }
+      else
+      {
+        ldiff[0][2] = below_l[0][tc];
+        abdiff[0][2] = below_ab[0][tc];
+        ldiff[1][2] = below_l[1][tc];
+        abdiff[1][2] = below_ab[1][tc];
+      }
+      ahd_lab_diff(lh[0], lh[LIBRAW_AHD_TILE], ldiff[0][3], abdiff[0][3]);
+      ahd_lab_diff(lv[0], lv[LIBRAW_AHD_TILE], ldiff[1][3], abdiff[1][3]);
+      below_l[0][tc] = ldiff[0][3];
+      below_ab[0][tc] = abdiff[0][3];
+      below_l[1][tc] = ldiff[1][3];
+      below_ab[1][tc] = abdiff[1][3];
+
       leps = MIN(MAX(ldiff[0][0], ldiff[0][1]), MAX(ldiff[1][2], ldiff[1][3]));
       abeps =
           MIN(MAX(abdiff[0][0], abdiff[0][1]), MAX(abdiff[1][2], abdiff[1][3]));
-      for (direction = 0; direction < 2; direction++)
-      {
-        homogeneity = 0;
-        for (i = 0; i < 4; i++)
-        {
-          if (ldiff[direction][i] <= leps && abdiff[direction][i] <= abeps)
-          {
-            homogeneity++;
-          }
-        }
-        homogeneity_map_p[0][direction] = homogeneity;
-      }
+
+      /* '&' on purpose: both tests are cheap, a branch per test is not */
+      hmap[0][0] = char(((ldiff[0][0] <= leps) & (abdiff[0][0] <= abeps)) +
+                        ((ldiff[0][1] <= leps) & (abdiff[0][1] <= abeps)) +
+                        ((ldiff[0][2] <= leps) & (abdiff[0][2] <= abeps)) +
+                        ((ldiff[0][3] <= leps) & (abdiff[0][3] <= abeps)));
+      hmap[0][1] = char(((ldiff[1][0] <= leps) & (abdiff[1][0] <= abeps)) +
+                        ((ldiff[1][1] <= leps) & (abdiff[1][1] <= abeps)) +
+                        ((ldiff[1][2] <= leps) & (abdiff[1][2] <= abeps)) +
+                        ((ldiff[1][3] <= leps) & (abdiff[1][3] <= abeps)));
     }
   }
 }
@@ -239,10 +298,8 @@ void LibRaw::ahd_interpolate_combine_homogeneous_pixels(
     char (*homogeneity_map)[LIBRAW_AHD_TILE][2])
 {
   int row, col;
-  int tr, tc;
-  int i, j;
+  int tr;
   int direction;
-  int hm[2];
   int c;
   const int rowlimit = MIN(top + LIBRAW_AHD_TILE - 3, height - 5);
   const int collimit = MIN(left + LIBRAW_AHD_TILE - 3, width - 5);
@@ -258,26 +315,35 @@ void LibRaw::ahd_interpolate_combine_homogeneous_pixels(
     {
       rix[direction] = &rgb[direction][tr][2];
     }
+    /* The 3x3 homogeneity sum is kept as three column sums that slide along
+       the row: one new column per pixel instead of nine cells. */
+    const char(*hm_up)[2] = homogeneity_map[tr - 1];
+    const char(*hm_mid)[2] = homogeneity_map[tr];
+    const char(*hm_down)[2] = homogeneity_map[tr + 1];
+    int colsum[2][3];
+    for (direction = 0; direction < 2; direction++)
+    {
+      colsum[direction][1] =
+          hm_up[2][direction] + hm_mid[2][direction] + hm_down[2][direction];
+      colsum[direction][2] =
+          hm_up[3][direction] + hm_mid[3][direction] + hm_down[3][direction];
+    }
 
     for (col = left + 3; col < collimit; col++)
     {
-      tc = col - left;
+      const int tc = col - left;
+      int hm[2];
       pix++;
       for (direction = 0; direction < 2; direction++)
       {
         rix[direction]++;
-      }
-
-      for (direction = 0; direction < 2; direction++)
-      {
-        hm[direction] = 0;
-        for (i = tr - 1; i <= tr + 1; i++)
-        {
-          for (j = tc - 1; j <= tc + 1; j++)
-          {
-            hm[direction] += homogeneity_map[i][j][direction];
-          }
-        }
+        colsum[direction][0] = colsum[direction][1];
+        colsum[direction][1] = colsum[direction][2];
+        colsum[direction][2] = hm_up[tc + 1][direction] +
+                               hm_mid[tc + 1][direction] +
+                               hm_down[tc + 1][direction];
+        hm[direction] = colsum[direction][0] + colsum[direction][1] +
+                        colsum[direction][2];
       }
       if (hm[0] != hm[1])
       {
