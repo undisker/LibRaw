@@ -1101,7 +1101,7 @@ void LibRaw::identify()
           load_raw = &LibRaw::deflate_dng_load_raw;
         break;
     case 9:
-        load_raw = &LibRaw::vc5_dng_load_raw_placeholder;
+        load_raw = &LibRaw::vc5_dng_load_raw;
         break;
     case 52546:
       load_raw = &LibRaw::jxl_dng_load_raw_placeholder;

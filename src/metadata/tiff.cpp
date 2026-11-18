@@ -2342,7 +2342,7 @@ void LibRaw::apply_tiff()
 	  // else: fallthrough
     case 9:
       if (dng_version)
-        break; /* Compression=9 supported for dng if we compiled with GPR SDK; if NO SDK: decoder will return NOT Supported */
+        break; /* Compression=9 (GoPro GPR, VC-5): native decoder, or GPR SDK if compiled with it */
 	  // else: fallthrough
     default:
       is_raw = 0;

@@ -18,14 +18,6 @@
 
 #include "../../internal/dcraw_defs.h"
 
-void LibRaw::vc5_dng_load_raw_placeholder()
-{
-    // placeholder only, real decoding implemented in GPR SDK
-	if (!dng_version)
-		throw LIBRAW_EXCEPTION_IO_EOF; // Never reached: it is just to fool global function optimizer
-    else
-      throw LIBRAW_EXCEPTION_UNSUPPORTED_FORMAT;
-}
 void LibRaw::jxl_dng_load_raw_placeholder()
 {
   // placeholder only, real decoding implemented in DNG SDK

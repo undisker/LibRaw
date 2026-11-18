@@ -331,9 +331,18 @@ are noted in the host application's `installer/ATTRIBUTIONS.txt`.
   to `src/libraw_c_api.cpp` (and to the Pascal loader as an optional symbol) or
   override `LIBRAW_MAX_ALLOC_MB_DEFAULT` at build time. Left as-is for now —
   recorded here so the choice is deliberate.
-- Do not enable RawSpeed or the DNG SDK. Both pull in large third-party
-  codebases with their own CVE histories and neither is needed for anything the
-  host application opens.
+- Do not enable RawSpeed, the Adobe DNG SDK or the GoPro GPR SDK. They pull in
+  large third-party codebases with their own CVE histories (the DNG SDK has had
+  roughly monthly security releases since late 2025) and, for the DNG SDK, an
+  uncapped indemnity to Adobe on commercial distribution. Nothing the host application
+  opens needs them: GoPro `.GPR` (VC-5) is decoded by this fork's own
+  `src/decoders/vc5.cpp`, derived from GoPro's Apache-2.0/MIT reference decoder
+  and bit-identical to it on all 17 GPR files of the raw.pixls.us corpus. Its
+  licence notice is in the file header; list "GoPro GPR SDK (VC-5 decoder),
+  Apache-2.0 OR MIT" in `installer/ATTRIBUTIONS.txt`.
+- The one format still out of reach without a new dependency is DNG with
+  JPEG XL compression (TIFF compression 52546, e.g. Samsung Expert RAW); it
+  needs libjxl.
 
 ---
 

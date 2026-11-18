@@ -277,7 +277,7 @@ it under the terms of the one of two licenses as you choose:
 	void        kodak_c603_load_raw();
 	void        kodak_rgb_load_thumb();
 	void        kodak_ycbcr_load_thumb();
-	void        vc5_dng_load_raw_placeholder();
+	void        vc5_dng_load_raw();
 	void        jxl_dng_load_raw_placeholder();
 // It's a Sony (and K&M)
 	void        sony_decrypt (unsigned *data, int len, int start, int key);

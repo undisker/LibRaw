@@ -1,3 +1,8 @@
+NOTE FOR THIS FORK (undisker): GoPro .GPR files are decoded natively by
+src/decoders/vc5.cpp. Neither the GPR SDK nor the Adobe DNG SDK is needed, and
+this fork's shipped builds use neither. The text below describes upstream's
+SDK-based route and is kept for reference only.
+
 GoPro HERO/Fusion .GPR files are DNG files by nature, but with own wavelet-based codec.
 
 GoPro provides GPR SDK for reading these files, available at https://github.com/gopro/gpr

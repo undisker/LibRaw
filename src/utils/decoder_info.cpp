@@ -46,12 +46,11 @@ int LibRaw::get_decoder_info(libraw_decoder_info_t *d_info)
     d_info->decoder_name = "android_loose_load_raw()";
     d_info->decoder_flags = LIBRAW_DECODER_FIXEDMAXC;
   }
-  else if (load_raw == &LibRaw::vc5_dng_load_raw_placeholder)
+  else if (load_raw == &LibRaw::vc5_dng_load_raw)
   {
-      d_info->decoder_name = "vc5_dng_load_raw_placeholder()";
-#ifndef USE_GPRSDK
-    d_info->decoder_flags = LIBRAW_DECODER_UNSUPPORTED_FORMAT;
-#endif
+    // GoPro GPR: native VC-5 decoder (if compiled with GPR SDK, the SDK is used instead)
+    d_info->decoder_name = "vc5_dng_load_raw()";
+    d_info->decoder_flags = LIBRAW_DECODER_HASCURVE | LIBRAW_DECODER_ADOBECOPYPIXEL;
   }
   else if (load_raw == &LibRaw::jxl_dng_load_raw_placeholder)
   {

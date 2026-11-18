@@ -11,6 +11,24 @@ is the authoritative description of how that `raw.dll` / `libraw.dylib` / `libra
 produced, which symbols the host application requires, what each `LIBRAW_ENABLE_*` switch costs in
 supported formats, and the procedure for the next upstream sync.
 
+## Formats added in this fork (November 2026)
+
+A run over the whole raw.pixls.us corpus (2020 files) is the basis; see the commit
+messages for how each layout was established.
+
+- **GoPro GPR** (HERO5-HERO11, Fusion): native VC-5 decoder, `src/decoders/vc5.cpp`, no
+  GoPro or Adobe SDK. Bit-identical to GoPro's reference decoder on all 17 corpus files;
+  40 wavelet bands decode in parallel (4000x3000 in about 60 ms on 4 cores).
+- **ARRIRAW** `.ari` (header version 3).
+- **Headerless dumps**: Canon PowerShot G7 X and IXY 220F (CHDK), Paralenz Dive Camera,
+  SJCAM SJ6 LEGEND full frame, Xiro Xplorer V, ImBack ImB35mm.
+- **Raspberry Pi** `.raw`: `LIBRAW_ENABLE_6BY9RPI` is now ON by default.
+- **Sony lossless ARW**: tile-parallel decoding (upstream PR #886, carried as a cherry-pick).
+
+Of the corpus, 1996 of 2020 files unpacked before the GPR decoder and 2013 do with it;
+the rest are one JPEG XL DNG (needs libjxl), two Casio QV `.cam`, one Light L16 `.lri`
+and three files that are not raw data at all.
+
 ## Latest Upstream Sync (November 2026)
 
 Merged up to upstream `master` at **70513b5** (PR #893, public snapshot 202611), 42 commits
