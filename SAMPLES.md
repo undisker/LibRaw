@@ -17,7 +17,8 @@ There are two layers of testing:
 
 `tests/test_pipeline_consistency.cpp` feeds a deterministic synthetic Bayer
 frame through the full pipeline via `open_bayer()`, so it requires **no external
-files**. For demosaic qualities 0 (bilinear), 3 (AHD) and 11 (DHT) it asserts:
+files**. For every Bayer demosaic quality (0 bilinear, 1 VNG, 2 PPG, 3 AHD, 4 DCB,
+11 DHT, 12 AAHD) it asserts:
 
 - **determinism** — two decodes are byte-identical;
 - **thread-invariance** — single-threaded output == multi-threaded output, i.e.
@@ -33,8 +34,9 @@ Expected:
 
 ```
 [ OK ] q=0  deterministic & thread-invariant  checksum=...
-[ OK ] q=3  deterministic & thread-invariant  checksum=...
-[ OK ] q=11 deterministic & thread-invariant  checksum=...
+[ OK ] q=1  deterministic & thread-invariant  checksum=...
+...
+[ OK ] q=12 deterministic & thread-invariant  checksum=...
 100% tests passed
 ```
 
@@ -70,6 +72,14 @@ personal practice only and are *not* redistributable.)
 You do **not** need to commit any RAW files to this repository; keep the corpus
 in a local folder and run `batch_verify` against it.
 
+Files sit under `https://raw.pixls.us/data/<Make>/<Model>/<file>`; the directory
+URLs list what is there. A file URL answers with a redirect, so fetch with
+`curl -L` (without it you get a 0-byte file and no error):
+
+```sh
+curl -L -O "https://raw.pixls.us/data/Sony/ILCE-7M4/ILCE-7M4_DSC06674_FullFrame-LossLess-Compressed-Large.ARW"
+```
+
 ### Minimal complete set — one file per major decoder
 
 | Ext | Example camera | Decoder | Path exercised |
@@ -77,7 +87,9 @@ in a local folder and run `batch_verify` against it.
 | `.CR2` | Canon EOS 5D Mk III / 80D | lossless JPEG | classic Bayer |
 | `.CR3` | Canon EOS R / RP / M50 | `crx.cpp` | parallel decode |
 | `.NEF` | Nikon Z6/Z7 (+ Z8/Z9 for High-Efficiency) | `decoders_dcraw` | compressed + HE codec |
-| `.ARW` | Sony A7 III / A7R IV | `sonycc.cpp` | lossless-compressed |
+| `.ARW` | Sony A1 / A7 IV / A7R V, *lossless compressed* **L** | `sony_ljpeg_load_raw` | tile-parallel lossless JPEG |
+| `.ARW` | same bodies, lossless compressed **M / S** | `sonycc.cpp` | YCbCr |
+| `.ARW` | any Sony, *compressed* | `sony_arw2_load_raw` | lossy ARW2 |
 | `.RAF` | Fuji X-T3 / X-T4 | `fuji_compressed.cpp` | parallel decode + X-Trans |
 | `.RW2` | Panasonic G9 / S1 | `pana8.cpp` | parallel decode |
 | `.ORF` | Olympus E-M1 / OM-1 | `olympus14.cpp` | 12/14-bit |
