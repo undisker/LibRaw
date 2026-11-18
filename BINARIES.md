@@ -340,7 +340,7 @@ are noted in the host application's `installer/ATTRIBUTIONS.txt`.
   derived from GoPro's Apache-2.0/MIT reference decoder and bit-identical to it
   on all 17 GPR files of the raw.pixls.us corpus. **It is a build option,
   `LIBRAW_ENABLE_GPR`, OFF by default**: GoPro holds patents on this kind of
-  Bayer compression that appear to run until about mid-2027. `LICENSING.md`
+  Bayer compression; the last of them runs until April 2030. `LICENSING.md`
   section 3 has what is known and how to settle it. `libraw_capabilities()`
   bit 21 tells a build with the decoder from one without.
 - DNG with JPEG XL compression (TIFF compression 52546 - Samsung Expert RAW,

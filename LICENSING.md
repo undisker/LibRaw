@@ -129,12 +129,34 @@ re-read at the source before anyone relies on them.
 
 - **GoPro holds patents on exactly this.** The family "Compression and decoding
   of single sensor color image data" (inventor David Newman; CineForm, then
-  GoPro), US 8,014,597 and at least eleven continuations up to US 11,297,337,
-  has a 2006 provisional and a March 2007 filing. Nominal expiry is therefore
-  about **March 2027**, later for members with term adjustment (one listing
-  gives July 2027). At least one member is reported to claim a *decoding*
-  method. *Unverified*: status and claims were not confirmed at the patent
-  office, and foreign counterparts were not checked.
+  Woodman Labs, now GoPro) was filed on 2007-03-22. Read on Google Patents on
+  2026-11-18 (not the patent office's own register, and US only - foreign
+  counterparts were not checked):
+
+  | Patent | Granted | Status | Expires |
+  |---|---|---|---|
+  | US 8,014,597 (parent) | 2011-09-06 | Active | **2030-04-07** (term adjusted) |
+  | US 8,345,969 | 2013-01-01 | Expired, fees not paid | - |
+  | US 8,538,143 | 2013-09-17 | Expired, fees not paid | - |
+  | US 8,644,629 | 2014-02-04 | Expired, fees not paid | - |
+  | US 8,718,390 | 2014-05-06 | Expired, fees not paid | - |
+  | US 8,879,861 | 2014-11-04 | Active | 2027-03-22 |
+  | US 9,025,896 | 2015-05-05 | Active | 2027-03-22 |
+  | US 9,438,799 | 2016-09-06 | Active | 2027-03-22 |
+  | US 9,736,384 | 2017-08-15 | Expired, fees not paid | - |
+  | US 10,212,352 | 2019-02-19 | Active | 2027-03-22 |
+  | US 10,574,898 | 2020-02-25 | Active | 2027-03-22 |
+  | US 11,297,337 | 2022-04-05 | Active | 2027-07-15 (term adjusted) |
+
+  The last to expire is the **parent, in April 2030**, not 2027. Its claim 12
+  is on the decoding side: an apparatus that retrieves data compressed by
+  separating the interleaved colour primaries into independent channels and
+  encoding each, decodes the channels, and combines them "into the full color
+  display memory". Claim 22 of US 11,297,337 covers instructions that
+  reconstruct the per-colour image portions "based on at least one color
+  differencing operation" and generate a reduced-resolution image. Whether a
+  decoder that only reproduces the Bayer mosaic falls under either is a
+  claim-construction question. **[lawyer]**
 - **SMPTE.** VC-5 is SMPTE ST 2073. SMPTE's policy allows declarations on RAND
   terms, not only royalty-free ones. A patent statement by GoPro for VC-5 is
   listed at SMPTE (2012); its content could not be read. *Unverified.* Nothing
@@ -177,8 +199,8 @@ Ways to close the question, cheapest first:
 2. Have a patent attorney read the live claims of the 8,014,597 family against
    a decode-only implementation, and check counterparts in the countries the
    product is sold in. **[lawyer]**
-3. Leave the option off until the family has expired (after mid-2027, once the
-   exact dates are confirmed) and turn it on then.
+3. Leave the option off until the family has expired. Seven members are
+   active; six of them end in March-July 2027, the parent in April 2030.
 
 ---
 
