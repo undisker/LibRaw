@@ -16,7 +16,7 @@ option(LIBRAW_ENABLE_JPEG "Enable JPEG support for thumbnails" ON)
 option(LIBRAW_ENABLE_LCMS2 "Enable LCMS2 color management" ON)
 option(LIBRAW_ENABLE_JASPER "Enable JasPer JPEG-2000 support" ON)
 option(LIBRAW_ENABLE_X3FTOOLS "Enable Sigma X3F support" ON)
-option(LIBRAW_ENABLE_6BY9RPI "Enable Raspberry Pi camera support" OFF)
+option(LIBRAW_ENABLE_6BY9RPI "Enable Raspberry Pi camera support" ON)
 option(LIBRAW_ENABLE_OPENMP "Enable OpenMP multithreading (decoders, demosaic, postprocessing)" ON)
 
 # Default to an optimized build when the user did not pick a configuration.

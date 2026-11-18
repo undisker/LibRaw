@@ -251,7 +251,7 @@ benefits from; it removes files the host application can open.
 | `LIBRAW_ENABLE_LCMS2` | no ICC output-profile support | Nothing the host application uses — it does its own colour management via `lcms2.dll`. |
 | `LIBRAW_ENABLE_JASPER` | no JPEG-2000 in DNG | Rare. |
 | `LIBRAW_ENABLE_X3FTOOLS` | Sigma `.x3f` unsupported | `.x3f` is in the host application's `RAW_EXTS`, so keep this **ON**. |
-| `LIBRAW_ENABLE_6BY9RPI` | Raspberry Pi camera format unsupported | Not a target; leave OFF. |
+| `LIBRAW_ENABLE_6BY9RPI` | Raspberry Pi camera `.raw` (JPEG with the sensor dump appended) unsupported | **ON** by default since November 2026: no dependency, and all five Raspberry Pi samples in the raw.pixls.us corpus need it. |
 
 Two things that are **not** affected by `LIBRAW_ENABLE_JPEG`, and are worth
 knowing before someone "optimises" it away in the other direction:

@@ -473,6 +473,37 @@ void LibRaw::android_tight_load_raw()
   free(data);
 }
 
+/* Rows of tiff_bps-bit pixels stored as one little-endian bit stream: the
+   first pixel sits in the low bits of the first byte. Every row starts on a
+   byte boundary. (Headerless dumps of some action/drone cameras, 10 bits.) */
+void LibRaw::packed_lsbfirst_load_raw()
+{
+  if (tiff_bps < 9 || tiff_bps > 16 || !raw_width || !raw_height)
+    throw LIBRAW_EXCEPTION_IO_CORRUPT;
+  const unsigned bps = tiff_bps, vmask = (1u << bps) - 1;
+  const size_t bwide = (size_t(raw_width) * bps + 7) / 8;
+  std::vector<uchar> data(bwide);
+  for (int row = 0; row < raw_height; row++)
+  {
+    checkCancel();
+    if (fread(data.data(), 1, bwide, ifp) < bwide)
+      derror();
+    const uchar *dp = data.data();
+    unsigned bitbuf = 0, vbits = 0;
+    for (int col = 0; col < raw_width; col++)
+    {
+      while (vbits < bps)
+      {
+        bitbuf |= unsigned(*dp++) << vbits;
+        vbits += 8;
+      }
+      RAW(row, col) = ushort(bitbuf & vmask);
+      bitbuf >>= bps;
+      vbits -= bps;
+    }
+  }
+}
+
 void LibRaw::android_loose_load_raw()
 {
   uchar *data, *dp;

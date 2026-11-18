@@ -242,6 +242,7 @@ it under the terms of the one of two licenses as you choose:
 	void        nokia_load_raw();
 	void        android_loose_load_raw();
 	void        android_tight_load_raw();
+	void        packed_lsbfirst_load_raw();
 	unsigned    pana_data (int nb, unsigned *bytes);
 	void        panasonic_load_raw();
 //	void        panasonic_16x10_load_raw();

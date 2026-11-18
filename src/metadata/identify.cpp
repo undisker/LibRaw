@@ -305,6 +305,15 @@ void LibRaw::identify()
 	  // (p0 = b0 | (b1 & 15) << 8, p1 = b1 >> 4 | b2 << 4). lf 16 reads a three-byte bite,
 	  // 64 swaps the pair back into order; saturation is 0xEFF, which adjust_maximum finds.
 	  { 15972480, 3760, 2832, 0, 0,  0, 0, 80, 0x94, 0, 0, "SJCAM", "SJ6 LEGEND" },
+	  // same camera and packing, full sensor readout
+	  { 18325296, 4024, 3036, 0, 0,  0, 0, 80, 0x94, 0, 0, "SJCAM", "SJ6 LEGEND" },
+	  // Paralenz Dive Camera / Dive Camera+ .RAW: 3840x2160, 14 bits in 16-bit LE words (lf 32)
+	  { 16588800, 3840, 2160, 0, 0,  0, 0, 32, 0x94, 0, 0, "Paralenz", "Dive Camera" },
+	  // Xiro Xplorer V .RAW: 4320x3240, 10 bits, four pixels in five bytes as one
+	  // little-endian bit stream (lf 0x200, see packed_lsbfirst_load_raw)
+	  { 17496000, 4320, 3240, 0, 0,  0, 0, 0x200, 0x94, 0, 0, "Xiro", "Xplorer V" },
+	  // ImBack ImB35mm digital back .raw: 4608x3328, 8 bits
+	  { 15335424, 4608, 3328, 0, 0,  0, 0,  0, 0x61, 0, 0, "ImBack", "ImB35mm" },
 	  //          {24000000, 4000, 3000, 0, 0, 0, 0, 0, 0x94, 0, 0, "GITUP",
       //          "G3DUO 4:3"}, // Conflict w/ Samsung WB550
 
@@ -370,6 +379,8 @@ void LibRaw::identify()
 	  { 15534576, 3728, 2778,  12,  9, 44,  9, 40, 0x94, 0, 2, "Canon", "PowerShot SX120 IS" }, // chdk hack
 	  { 19131120, 4168, 3060,  92, 16,  4,  1, 40, 0x94, 0, 2, "Canon", "PowerShot SX220 HS" }, // chdk hack
 	  { 31663200, 5344, 3950,  96, 18,  0,  0, 40, 0x94, 0, 2, "Canon", "PowerShot SX710 HS" }, // chdk hack
+	  { 31342080, 5632, 3710,  96, 17,  0,  0, 40, 0x49, 0, 2, "Canon", "PowerShot G7 X" }, // chdk hack
+	  { 25230816, 4784, 3516,  96, 17,  8,  0, 40, 0x49, 0, 2, "Canon", "IXY 220F" }, // chdk hack
 	  { 30858240, 5248, 3920,   8, 16, 56, 16, 40, 0x94, 0, 2, "Canon", "IXUS 160" }, // chdk hack
 	  {  1976352, 1632, 1211,   0,  2,  0,  1,  0, 0x94, 0, 1, "Casio", "QV-2000UX" },
 	  {  3217760, 2080, 1547,   0,  0, 10,  1,  0, 0x94, 0, 1, "Casio", "QV-3*00EX" },
@@ -713,6 +724,52 @@ void LibRaw::identify()
   }
   else if (!memcmp(head, "CI", 2))
     parse_cine();
+  else if (!memcmp(head, "ARRI\x12\x34\x56\x78", 8)) /* magic + byte order mark */
+  {
+    /* ARRIRAW (.ari), header version 3: a fixed little-endian header followed
+       by the frame as a 12-bit little-endian bit stream. Offsets are those of
+       the header. */
+    order = 0x4949;
+    fseek(ifp, 20, SEEK_SET);
+    raw_width = get4();
+    raw_height = get4();
+    fseek(ifp, 0x44, SEEK_SET);
+    INT64 ari_offset = get4(), ari_size = get4();
+    if (raw_width >= 22 && raw_height >= 22 && raw_width <= 16384 && raw_height <= 16384 &&
+        ari_offset >= 0x100 && ari_offset < fsize &&
+        ari_size >= INT64(raw_width) * INT64(raw_height) * 3LL / 2LL &&
+        ari_offset + INT64(raw_width) * INT64(raw_height) * 3LL / 2LL <= fsize)
+    {
+      width = raw_width;
+      height = raw_height;
+      data_offset = ari_offset;
+      strcpy(make, "ARRI");
+      fseek(ifp, 668, SEEK_SET);
+      fread(model, 1, 63, ifp);
+      model[63] = 0;
+      if (!model[0])
+        strcpy(model, "ARRIRAW");
+      fseek(ifp, 0x64, SEEK_SET); /* white balance factors R, G, B */
+      float ari_wb[3];
+      FORC3 ari_wb[c] = float(getreal(LIBRAW_EXIFTAG_TYPE_FLOAT));
+      if (ari_wb[0] > 0.1f && ari_wb[0] < 16.f && ari_wb[1] > 0.1f && ari_wb[1] < 16.f &&
+          ari_wb[2] > 0.1f && ari_wb[2] < 16.f)
+      {
+        FORC3 cam_mul[c] = ari_wb[c];
+        cam_mul[3] = cam_mul[1];
+      }
+      fseek(ifp, 0x74, SEEK_SET);
+      unsigned ari_ei = get4(), ari_black = get4();
+      if (ari_ei >= 25 && ari_ei <= 204800)
+        iso_speed = float(ari_ei);
+      if (ari_black < 1024)
+        black = ari_black;
+      tiff_bps = 12;
+      maximum = 0xfff;
+      filters = 0x16161616;
+      load_raw = &LibRaw::packed_lsbfirst_load_raw;
+    }
+  }
 #ifdef USE_6BY9RPI
   else if (!memcmp(head, "BRCM", 4)) {
 	fseek(ifp, 0, SEEK_SET);
@@ -773,6 +830,7 @@ void LibRaw::identify()
         filters = 0x1010101U * table[i].cf;
         colors = 4 - !((filters & filters >> 1) & 0x5555);
         load_flags = table[i].lf & 0xff;
+        const bool lsbfirst = (table[i].lf & 0x200) != 0; /* LSB-first bit stream */
         if (table[i].lf & 0x100) /* Monochrome sensor dump */
         {
           colors = 1;
@@ -788,6 +846,11 @@ void LibRaw::identify()
           load_raw = &LibRaw::eight_bit_load_raw;
           break;
         case 10:
+          if (lsbfirst)
+          {
+            load_raw = &LibRaw::packed_lsbfirst_load_raw;
+            break;
+          }
           if ((fsize - data_offset) / INT64(raw_height) * 3LL >= INT64(raw_width) * 4LL)
           {
             load_raw = &LibRaw::android_loose_load_raw;
