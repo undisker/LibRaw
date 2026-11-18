@@ -46,7 +46,8 @@ set(JXL_SUBMODULES third_party/highway third_party/brotli third_party/lcms)
 
 # GoPro's GPR SDK, for its VC-5 decoder only (source/lib/vc5_decoder,
 # vc5_common, common). It is not built here: LibRaw's own CMakeLists compiles
-# those three directories, unmodified, into the library (LIBRAW_ENABLE_GPR_SDK)
+# those three directories, with the hardening patch below and no other change,
+# into the library (LIBRAW_ENABLE_GPR_SDK)
 # and finds the checkout at <prefix>/_src/gpr. The repository has no release
 # tags, so a commit is pinned.
 set(GPR_REPO   "https://github.com/gopro/gpr.git")
@@ -111,6 +112,33 @@ function(fetch_commit aName aRepo aCommit aDir)
             message(FATAL_ERROR "build-deps: fetching ${aName} failed at 'git ${iCmd}' (${iRc})")
         endif()
     endforeach()
+endfunction()
+
+# Apply <patch> to the checkout in <dir>, unless it is already applied.
+function(apply_patch aName aDir aPatch)
+    get_filename_component(iPatch "${aPatch}" ABSOLUTE)
+    if(NOT EXISTS "${iPatch}")
+        message(WARNING "build-deps: patch for ${aName} not found: ${iPatch}")
+        return()
+    endif()
+    execute_process(COMMAND "${GIT_EXECUTABLE}" -C "${aDir}" apply --check "${iPatch}"
+                    RESULT_VARIABLE iRc OUTPUT_QUIET ERROR_QUIET)
+    if(iRc EQUAL 0)
+        execute_process(COMMAND "${GIT_EXECUTABLE}" -C "${aDir}" apply "${iPatch}" RESULT_VARIABLE iRc)
+        if(NOT iRc EQUAL 0)
+            message(FATAL_ERROR "build-deps: applying the ${aName} patch failed (${iRc})")
+        endif()
+        message(STATUS "build-deps: ${aName} patched")
+        return()
+    endif()
+    execute_process(COMMAND "${GIT_EXECUTABLE}" -C "${aDir}" apply --reverse --check "${iPatch}"
+                    RESULT_VARIABLE iRc OUTPUT_QUIET ERROR_QUIET)
+    if(iRc EQUAL 0)
+        message(STATUS "build-deps: ${aName} patch already applied")
+    else()
+        message(FATAL_ERROR "build-deps: the ${aName} patch neither applies nor is applied - "
+                            "the checkout in ${aDir} is not the pinned commit")
+    endif()
 endfunction()
 
 # Configure, build and install one dependency into PREFIX.
@@ -189,5 +217,9 @@ build_dep(libjxl "${WORK}/libjxl"
 )
 
 fetch_commit(gpr "${GPR_REPO}" "${GPR_COMMIT}" "${WORK}/gpr")
+# GoPro's decoder trusts its input (heap overflows on damaged files). The
+# patch adds bounds checks and changes nothing else; LibRaw's CMakeLists warns
+# when it compiles an unpatched checkout.
+apply_patch(gpr "${WORK}/gpr" "${CMAKE_CURRENT_LIST_DIR}/../GoPro/gpr-vc5-hardening.patch")
 
 message(STATUS "build-deps: done, prefix = ${PREFIX}")

@@ -447,8 +447,8 @@ if(LIBRAW_ENABLE_6BY9RPI)
 endif()
 
 # GoPro GPR through GoPro's own decoder: the vc5_decoder and vc5_common
-# libraries of the GPR SDK, compiled from an unmodified checkout into the
-# library. Only those two directories and the SDK's small "common" helpers
+# libraries of the GPR SDK, compiled from a checkout of the pinned commit
+# with the hardening patch into the library. Only those two directories and the SDK's small "common" helpers
 # are used - not gpr_sdk, and not the copy of the Adobe DNG SDK that sits in
 # the same repository.
 set(LIBRAW_GPR_SDK_FOUND FALSE)
@@ -491,7 +491,14 @@ if(LIBRAW_ENABLE_GPR_SDK)
             "${LIBRAW_GPR_SDK_ROOT}/common/public")
         target_compile_definitions(raw PRIVATE USE_GPR_OPENSDK)
         list(APPEND LIBRAW_COMPILE_DEFS USE_GPR_OPENSDK)
-        message(STATUS "LibRaw: GoPro GPR through GoPro's VC-5 decoder (${LIBRAW_GPR_SDK_ROOT})")
+        # Without GoPro/gpr-vc5-hardening.patch the decoder overflows its
+        # buffers on damaged files; cmake/build-deps.cmake applies it.
+        file(STRINGS "${LIBRAW_GPR_SDK_ROOT}/vc5_decoder/decoder.c" _gpr_hardened REGEX "hardening:" LIMIT_COUNT 1)
+        if(_gpr_hardened)
+            message(STATUS "LibRaw: GoPro GPR through GoPro's VC-5 decoder, hardened (${LIBRAW_GPR_SDK_ROOT})")
+        else()
+            message(WARNING "LibRaw: the GoPro GPR SDK in ${LIBRAW_GPR_SDK_ROOT} is NOT patched with GoPro/gpr-vc5-hardening.patch - not safe for files of unknown origin")
+        endif()
     else()
         message(WARNING "LibRaw: GoPro GPR SDK sources not found (run cmake/build-deps.cmake or set LIBRAW_GPR_SDK_DIR); GPR files will not unpack")
     endif()

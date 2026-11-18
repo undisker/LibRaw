@@ -4,7 +4,9 @@
  *
    GoPro GPR (VC-5 in DNG, TIFF Compression=9) decoded by GoPro's own
    open-source decoder: the vc5_decoder and vc5_common libraries of the GPR
-   SDK (https://github.com/gopro/gpr), compiled into the library UNMODIFIED.
+   SDK (https://github.com/gopro/gpr), compiled into the library with one
+   patch that adds bounds checks (GoPro/gpr-vc5-hardening.patch) and no other
+   change.
 
    Built when USE_GPR_OPENSDK is defined (CMake: LIBRAW_ENABLE_GPR_SDK, the
    default). This file contains no GoPro code; it only finds the VC-5 stream
@@ -17,7 +19,7 @@
    Why GoPro's code rather than this fork's own decoder (vc5.cpp): GoPro
    licenses these sources under Apache-2.0 (or MIT), and the patent licence in
    Apache-2.0 section 3 is given for GoPro's contribution as GoPro published
-   it. Running that code unchanged is the use the grant is written for. See
+   it. Running that code is the use the grant is written for. See
    LICENSING.md, section 3.
 
 LibRaw is free software; you can redistribute it and/or modify
@@ -53,9 +55,73 @@ extern "C"
 
 namespace
 {
-// GoPro's decoder takes plain allocation callbacks
-void *gpr_opensdk_alloc(size_t size) { return ::malloc(size); }
-void gpr_opensdk_free(void *p) { ::free(p); }
+/* GoPro's decoder allocates through two plain callbacks. They are routed
+   through a per-call ledger, for two things the decoder does not do itself:
+   everything it leaves allocated when it stops on an error is released
+   afterwards, and the total it may hold is limited. The callbacks carry no
+   context argument, hence the thread-local pointer. */
+struct gpr_opensdk_ledger
+{
+  struct block
+  {
+    void *ptr;
+    size_t size;
+  };
+  std::vector<block> blocks;
+  size_t held, limit;
+  gpr_opensdk_ledger(size_t aLimit) : held(0), limit(aLimit) {}
+  ~gpr_opensdk_ledger()
+  {
+    for (size_t i = 0; i < blocks.size(); i++)
+      ::free(blocks[i].ptr);
+  }
+  void *take(size_t size)
+  {
+    if (size > limit || held > limit - size)
+      return NULL;
+    void *p = ::malloc(size ? size : 1);
+    if (!p)
+      return NULL;
+    try
+    {
+      block b = {p, size};
+      blocks.push_back(b);
+    }
+    catch (...)
+    {
+      ::free(p);
+      return NULL;
+    }
+    held += size;
+    return p;
+  }
+  // Remove a block from the ledger; false if it is not one of ours
+  bool forget(void *p)
+  {
+    for (size_t i = blocks.size(); i-- > 0;)
+      if (blocks[i].ptr == p)
+      {
+        held -= blocks[i].size;
+        blocks.erase(blocks.begin() + i);
+        return true;
+      }
+    return false;
+  }
+};
+
+#if defined(_MSC_VER)
+__declspec(thread) gpr_opensdk_ledger *gpr_opensdk_current = NULL;
+#else
+__thread gpr_opensdk_ledger *gpr_opensdk_current = NULL;
+#endif
+
+void *gpr_opensdk_alloc(size_t size) { return gpr_opensdk_current ? gpr_opensdk_current->take(size) : NULL; }
+void gpr_opensdk_free(void *p)
+{
+  // Only what the ledger handed out is freed, and only once
+  if (p && gpr_opensdk_current && gpr_opensdk_current->forget(p))
+    ::free(p);
+}
 
 inline unsigned gpr_be16(const uchar *p) { return (unsigned(p[0]) << 8) | p[1]; }
 
@@ -140,8 +206,9 @@ void LibRaw::vc5_dng_load_raw()
 
   /* The stream, followed by zero padding: GoPro's bit reader does not check
      the end of its input, and the padding keeps a read past the end of a
-     damaged stream inside this buffer. It does not make the decoder safe
-     against hostile input - see the note on robustness in LICENSING.md. */
+     damaged stream inside this buffer. This is a second line of defence;
+     the first is the hardening patch the SDK sources are built with
+     (GoPro/gpr-vc5-hardening.patch, LICENSING.md section 3). */
   const size_t padding = 1 << 16;
   std::vector<uchar> stream;
   try
@@ -175,26 +242,39 @@ void LibRaw::vc5_dng_load_raw()
   gpr_buffer in = {stream.data(), size_t(csize)};
   gpr_buffer out = {NULL, 0};
   checkCancel();
-  const CODEC_ERROR err = vc5_decoder_process(&params, &in, &out, NULL);
-  if (err != CODEC_ERROR_OKAY || !out.buffer)
+
+  /* Everything from here to the end of the block is plain C code and
+     non-throwing C++; the ledger releases whatever the decoder still holds
+     when it goes out of scope. */
+  bool decoded = false;
   {
-    if (out.buffer)
-      gpr_opensdk_free(out.buffer);
-    throw LIBRAW_EXCEPTION_IO_CORRUPT;
+    const size_t ledger_limit = size_t(memory_limit);
+    gpr_opensdk_ledger ledger(ledger_limit);
+    gpr_opensdk_current = &ledger;
+    const CODEC_ERROR err = vc5_decoder_process(&params, &in, &out, NULL);
+    gpr_opensdk_current = NULL;
+
+    // The decoder writes complete 2x2 cells only
+    const size_t dwide = raw_width & ~1u, dhigh = raw_height & ~1u;
+    /* The result must be a block the decoder obtained through the ledger
+       and large enough for the image; anything else is not trusted. */
+    size_t out_block = 0;
+    for (size_t i = 0; i < ledger.blocks.size(); i++)
+      if (ledger.blocks[i].ptr == out.buffer)
+        out_block = ledger.blocks[i].size;
+    if (err == CODEC_ERROR_OKAY && out.buffer && dwide && dhigh && out.size <= out_block &&
+        out.size >= dwide * dhigh * sizeof(ushort))
+    {
+      const size_t stride = out.size / sizeof(ushort) / dhigh >= size_t(raw_width) ? size_t(raw_width) : dwide;
+      const ushort *src = (const ushort *)out.buffer;
+      for (unsigned row = 0; row < raw_height; row++)
+        for (unsigned col = 0; col < raw_width; col++)
+          RAW(row, col) = (row < dhigh && col < dwide) ? curve[src[size_t(row) * stride + col]] : 0;
+      decoded = true;
+    }
   }
-  // The decoder writes complete 2x2 cells only
-  const size_t dwide = raw_width & ~1u, dhigh = raw_height & ~1u;
-  if (out.size < dwide * dhigh * sizeof(ushort))
-  {
-    gpr_opensdk_free(out.buffer);
+  if (!decoded)
     throw LIBRAW_EXCEPTION_IO_CORRUPT;
-  }
-  const size_t stride = out.size / sizeof(ushort) / dhigh >= size_t(raw_width) ? size_t(raw_width) : dwide;
-  const ushort *src = (const ushort *)out.buffer;
-  for (unsigned row = 0; row < raw_height; row++)
-    for (unsigned col = 0; col < raw_width; col++)
-      RAW(row, col) = (row < dhigh && col < dwide) ? curve[src[size_t(row) * stride + col]] : 0;
-  gpr_opensdk_free(out.buffer);
 }
 
 #endif /* USE_GPR_OPENSDK */
