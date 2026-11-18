@@ -57,6 +57,42 @@ that update the image in place and read already-updated neighbours
 `fbdd_*`, AAHD's `hide_hots` and `refine_ihv_dirs`) depend on the scan order and
 stay sequential on purpose.
 
+The same comparison was repeated on twelve real files from raw.pixls.us (Canon
+CR2 and CR3, Nikon NEF, Fuji X-Trans RAF, Panasonic 80 MP RW2, Olympus ORF,
+Pentax PEF and DNG, four Sony ARW variants), 16-bit output, every quality, 3 and
+4 threads: all 84 full-size results are bit-identical to the build before the
+optimisations, with `dcraw_process` 2.3–2.9× faster for linear, VNG, DCB and
+AAHD and 1.1–1.2× for PPG, AHD and DHT.
+
+One result differs, and on purpose: **half-size X-Trans**. The old build is not
+deterministic there - `copy_bayer` ran `schedule(dynamic)` with single-row
+chunks, and with `half_size` two raw rows that store the same colour into the
+same output cell could land in different threads, so the output changed from run
+to run (upstream still does this). `copy_bayer` now uses an even chunk size,
+which keeps such a row pair in one thread; the output is stable and equals the
+single-threaded one. Keep the chunk size even.
+
+**Sony lossless-compressed ARW.** `sony_ljpeg_load_raw` decodes its 512×512
+lossless-JPEG tiles in parallel from memory with a table-driven Huffman decoder
+(upstream PR #886, not merged upstream at the time of writing; carried here as a
+cherry-pick). `unpack()` on the same machine:
+
+| File | before | after, 4 threads | after, 1 thread |
+|---|---|---|---|
+| A7R V lossless L, 9728×6656 | 1694 ms | 156 ms | — |
+| A1 lossless, 8704×6144      | 1542 ms | 155 ms | 556 ms |
+| A7 IV lossless L, 7168×5120 | 940 ms  | 81 ms  | — |
+| A7 IV APS-C lossless M      | 454 ms  | 43 ms  | 156 ms |
+
+The raw buffer is bit-identical to the old decoder's on all six lossless-L /
+crop-mode samples tried, at 1, 2, 4 and 7 threads. The new path only accepts
+streams the old decoder reads without any warning and otherwise falls back to
+it; seven deliberately damaged copies (truncated, bit-flipped, zeroed and
+0xFF-filled blocks) gave the same output, the same error codes and the same
+"data corrupted" messages as before. When upstream merges or reworks the PR,
+expect a conflict in `src/decoders/decoders_libraw_dcrdefs.cpp` and take
+upstream's version.
+
 `dcraw_process` is on the host application's interactive path whenever the embedded
 preview is unusable (`rdmFullOnly`, or `rdmAuto` on a file whose preview is
 narrower than `RawMinPreviewWidth`), so this is user-visible latency, not a

@@ -287,6 +287,12 @@ void LibRaw::copy_bayer(unsigned short cblack[4], unsigned short *dmaxp)
      colour depends on the column parity only, so fcol() - an out-of-line
      call - can be replaced by two values per row. */
   const bool simple_bayer = imgdata.idata.filters > 1000;
+  /* The chunk size must stay EVEN. With half_size (shrink == 1) rows 2r and
+     2r+1 store into the same output row; on X-Trans a 2x2 cell can hold the
+     same colour twice, so both rows write the same cell and the later row has
+     to win, as it does single-threaded. An even chunk keeps the two rows in
+     one thread, in order. (Upstream's schedule(dynamic), chunk 1, hands them
+     to different threads: half-size X-Trans output then varies run to run.) */
 #if defined(LIBRAW_USE_OPENMP)
 #pragma omp parallel for schedule(dynamic, 16) default(shared) firstprivate(cblack, maxHeight)
 #endif
