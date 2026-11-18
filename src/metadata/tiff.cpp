@@ -1371,6 +1371,12 @@ int LibRaw::parse_tiff_ifd(INT64 base)
         tiff_ifd[ifd].dng_levels.parsedfields |= LIBRAW_DNGFM_BLACK;
       }
       break;
+    case 0xc71f: /* 50975, RowInterleaveFactor */
+      tiff_ifd[ifd].row_interleave = getint(type);
+      break;
+    case 0xcd43: /* 52547, ColumnInterleaveFactor */
+      tiff_ifd[ifd].col_interleave = getint(type);
+      break;
     case 0xc61d: /* 50717, WhiteLevel */
       tiff_ifd[ifd].dng_levels.parsedfields |= LIBRAW_DNGFM_WHITE;
       tiff_ifd[ifd].dng_levels.dng_whitelevel[0] = maximum = getint(type);

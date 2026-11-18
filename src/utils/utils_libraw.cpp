@@ -228,6 +228,12 @@ unsigned LibRaw::capabilities()
 #ifdef USE_JPEG
   ret |= LIBRAW_CAPS_JPEG;
 #endif
+#ifdef USE_JXL
+  ret |= LIBRAW_CAPS_JXL;
+#endif
+#ifdef USE_GPR_VC5
+  ret |= LIBRAW_CAPS_GPR_NATIVE;
+#endif
   return ret;
 }
 

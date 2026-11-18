@@ -25,3 +25,14 @@ All rights reserved.
 LibRaw uses pieces of code from Adobe DNG SDK 1.4,
 Copyright (c) 2005 Adobe Systems Incorporated, licensed under MIT license
 
+--- Additions of the undisker fork (see LICENSING.md) ---
+
+The GoPro GPR decoder (src/decoders/vc5.cpp, built only with
+LIBRAW_ENABLE_GPR) is derived from the GoPro GPR SDK reference VC-5 decoder,
+(C) Copyright 2018 GoPro Inc, licensed under Apache License 2.0 or MIT license.
+
+The Sony lossless ARW tile decoder comes from upstream pull request #886 and is
+distributed under LibRaw's two licenses.
+
+JPEG XL compressed DNG is decoded with libjxl (BSD 3-clause), linked as a
+separate library.

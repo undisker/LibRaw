@@ -26,6 +26,13 @@
    follow that code so that the output is bit-exact with the GPR SDK.
    Neither the GPR SDK nor the Adobe DNG SDK is needed to build or use it.
 
+   Of the two licences GoPro offers, the GoPro-derived parts of this file are
+   taken under the Apache License 2.0 (which carries GoPro's patent licence,
+   section 3); the MIT licence GoPro offers alongside is not given up. As
+   Apache 2.0 section 4(b) requires, note that THIS FILE IS A MODIFIED WORK:
+   it is a rewrite in C++ for LibRaw (bounded readers, LibRaw I/O and error
+   handling, OpenMP), not a copy of GoPro's files.
+
 LibRaw is free software; you can redistribute it and/or modify
 it under the terms of the one of two licenses as you choose:
 
@@ -38,6 +45,19 @@ it under the terms of the one of two licenses as you choose:
  */
 
 #include "../../internal/dcraw_defs.h"
+
+#ifndef USE_GPR_VC5
+
+/* Compiled out. The decoder is a build option (CMake: LIBRAW_ENABLE_GPR)
+   because GoPro holds patents on this way of compressing Bayer data and whether
+   to ship it is a decision for whoever distributes the binary - see
+   LICENSING.md. */
+void LibRaw::vc5_dng_load_raw()
+{
+  throw LIBRAW_EXCEPTION_UNSUPPORTED_FORMAT;
+}
+
+#else
 
 namespace
 {
@@ -1376,3 +1396,5 @@ void LibRaw::vc5_dng_load_raw()
     for (unsigned col = 0; col < raw_width; col++)
       RAW(raw_height - 1, col) = 0;
 }
+
+#endif /* USE_GPR_VC5 */

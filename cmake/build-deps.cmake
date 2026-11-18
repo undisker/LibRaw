@@ -1,7 +1,7 @@
 # Build LibRaw's optional dependencies from pinned sources into one prefix.
 #
 #   cmake [-DPREFIX=<dir>] [-DOSX_ARCHS=<archs>] [-DJOBS=<n>] -P cmake/build-deps.cmake
-#   cmake -S . -B build -DCMAKE_PREFIX_PATH=<dir> -DLIBRAW_ENABLE_ZLIB=ON -DLIBRAW_ENABLE_JPEG=ON
+#   cmake -S . -B build -DCMAKE_PREFIX_PATH=<dir> -DLIBRAW_ENABLE_ZLIB=ON -DLIBRAW_ENABLE_JPEG=ON -DLIBRAW_ENABLE_JXL=ON
 #
 # Run with `cmake -P`, so the same one command works on Windows, macOS and
 # Linux - no vcpkg, Homebrew and apt recipes to keep in agreement, and the
@@ -18,7 +18,7 @@
 #     built here is position-independent.
 #   * Windows. There is no system copy to find.
 #
-# Both are built SHARED on purpose. Separate libraries keep a CVE in either one
+# All are built SHARED on purpose. Separate libraries keep a CVE in any of them
 # a single-file replacement rather than a LibRaw rebuild, and let the
 # application share one copy with its other consumers - the host application already
 # ships zlib1.dll for libtiff and its own compression code. See BINARIES.md.
@@ -34,6 +34,15 @@ set(ZLIB_NG_TAG  "2.3.3")
 
 set(JPEG_REPO "https://github.com/libjpeg-turbo/libjpeg-turbo.git")
 set(JPEG_TAG  "3.1.4")
+
+# libjxl decodes JPEG XL compressed DNG (DNG 1.7). It needs three of its
+# submodules - highway, brotli and a colour management library; the others
+# are test data and tools. Little CMS is used rather than the default skcms:
+# skcms is the one submodule not hosted on GitHub, and a build that depends on
+# a second host fails wherever only GitHub is reachable.
+set(JXL_REPO "https://github.com/libjxl/libjxl.git")
+set(JXL_TAG  "v0.11.1")
+set(JXL_SUBMODULES third_party/highway third_party/brotli third_party/lcms)
 
 if(NOT DEFINED PREFIX OR PREFIX STREQUAL "")
     set(PREFIX "${CMAKE_CURRENT_LIST_DIR}/../dependencies/prefix")
@@ -54,6 +63,8 @@ file(MAKE_DIRECTORY "${WORK}")
 find_package(Git REQUIRED)
 
 # Clone <repo> at <tag> into <dir>, or leave an existing checkout alone.
+# Further arguments name the submodules to fetch as well (at the commits the
+# tag records).
 function(fetch_dep aName aRepo aTag aDir)
     if(EXISTS "${aDir}/.git")
         message(STATUS "build-deps: ${aName} already present at ${aDir}")
@@ -66,6 +77,15 @@ function(fetch_dep aName aRepo aTag aDir)
     )
     if(NOT iRc EQUAL 0)
         message(FATAL_ERROR "build-deps: cloning ${aName} failed (${iRc})")
+    endif()
+    if(ARGN)
+        execute_process(
+            COMMAND "${GIT_EXECUTABLE}" -C "${aDir}" submodule update --init --depth 1 ${ARGN}
+            RESULT_VARIABLE iRc
+        )
+        if(NOT iRc EQUAL 0)
+            message(FATAL_ERROR "build-deps: fetching the submodules of ${aName} failed (${iRc})")
+        endif()
     endif()
 endfunction()
 
@@ -121,6 +141,27 @@ build_dep(libjpeg-turbo "${WORK}/libjpeg-turbo"
     # LibRaw uses the libjpeg API only; leaving the TurboJPEG API out avoids
     # building and shipping a second copy of the codec.
     -DWITH_TURBOJPEG=OFF
+)
+
+# Decoder only: no tools, no tests, no encoder front ends, no JPEG transcoding.
+fetch_dep(libjxl "${JXL_REPO}" "${JXL_TAG}" "${WORK}/libjxl" ${JXL_SUBMODULES})
+build_dep(libjxl "${WORK}/libjxl"
+    -DBUILD_SHARED_LIBS=ON
+    -DBUILD_TESTING=OFF
+    -DJPEGXL_ENABLE_TOOLS=OFF
+    -DJPEGXL_ENABLE_DOXYGEN=OFF
+    -DJPEGXL_ENABLE_MANPAGES=OFF
+    -DJPEGXL_ENABLE_BENCHMARK=OFF
+    -DJPEGXL_ENABLE_EXAMPLES=OFF
+    -DJPEGXL_ENABLE_JNI=OFF
+    -DJPEGXL_ENABLE_SJPEG=OFF
+    -DJPEGXL_ENABLE_OPENEXR=OFF
+    -DJPEGXL_ENABLE_JPEGLI=OFF
+    -DJPEGXL_ENABLE_TRANSCODE_JPEG=OFF
+    -DJPEGXL_ENABLE_SKCMS=OFF           # Little CMS, see above
+    -DJPEGXL_BUNDLE_LIBPNG=OFF
+    -DJPEGXL_FORCE_SYSTEM_BROTLI=OFF
+    -DJPEGXL_FORCE_SYSTEM_HWY=OFF
 )
 
 message(STATUS "build-deps: done, prefix = ${PREFIX}")

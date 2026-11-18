@@ -17,6 +17,9 @@ option(LIBRAW_ENABLE_LCMS2 "Enable LCMS2 color management" ON)
 option(LIBRAW_ENABLE_JASPER "Enable JasPer JPEG-2000 support" ON)
 option(LIBRAW_ENABLE_X3FTOOLS "Enable Sigma X3F support" ON)
 option(LIBRAW_ENABLE_6BY9RPI "Enable Raspberry Pi camera support" ON)
+option(LIBRAW_ENABLE_JXL "Enable JPEG XL compressed DNG (needs libjxl)" ON)
+# OFF until the distributor has decided on the patent question - LICENSING.md.
+option(LIBRAW_ENABLE_GPR "Enable the built-in GoPro GPR (VC-5) decoder" OFF)
 option(LIBRAW_ENABLE_OPENMP "Enable OpenMP multithreading (decoders, demosaic, postprocessing)" ON)
 
 # Default to an optimized build when the user did not pick a configuration.
@@ -62,6 +65,7 @@ set(LIBRAW_SOURCES
     src/decoders/load_mfbacks.cpp
     src/decoders/olympus14.cpp
     src/decoders/nikonhe.cpp
+    src/decoders/jxl_dng.cpp
     src/decoders/vc5.cpp
     src/decoders/pana8.cpp
     src/decoders/smal.cpp
@@ -435,6 +439,46 @@ if(LIBRAW_ENABLE_6BY9RPI)
     target_compile_definitions(raw PRIVATE USE_6BY9RPI)
     list(APPEND LIBRAW_COMPILE_DEFS USE_6BY9RPI)
     message(STATUS "LibRaw: Raspberry Pi camera support enabled")
+endif()
+
+# GoPro GPR: built-in VC-5 decoder (src/decoders/vc5.cpp), no SDK involved.
+if(LIBRAW_ENABLE_GPR)
+    target_compile_definitions(raw PRIVATE USE_GPR_VC5)
+    list(APPEND LIBRAW_COMPILE_DEFS USE_GPR_VC5)
+    message(STATUS "LibRaw: GoPro GPR (VC-5) decoder enabled - see LICENSING.md")
+else()
+    message(STATUS "LibRaw: GoPro GPR (VC-5) decoder disabled (LIBRAW_ENABLE_GPR=OFF)")
+endif()
+
+# JPEG XL compressed DNG (DNG 1.7, compression 52546) through libjxl.
+# libjxl installs pkg-config files but no CMake package, so it is located by
+# header and library name; CMAKE_PREFIX_PATH (cmake/build-deps.cmake) is honoured.
+if(LIBRAW_ENABLE_JXL)
+    find_path(JXL_INCLUDE_DIR jxl/decode.h)
+    find_library(JXL_LIBRARY NAMES jxl)
+    find_library(JXL_THREADS_LIBRARY NAMES jxl_threads)
+    if(JXL_INCLUDE_DIR AND JXL_LIBRARY)
+        target_include_directories(raw PRIVATE ${JXL_INCLUDE_DIR})
+        target_link_libraries(raw PRIVATE ${JXL_LIBRARY})
+        target_compile_definitions(raw PRIVATE USE_JXL)
+        list(APPEND LIBRAW_COMPILE_DEFS USE_JXL)
+        # libjxl depends on further shared libraries (its CMS, brotli). When
+        # they sit in a prefix the linker does not search
+        # (cmake/build-deps.cmake), GNU ld cannot resolve them while linking
+        # an executable against libraw; tell it where they are.
+        if(UNIX AND NOT APPLE)
+            get_filename_component(JXL_LIBRARY_DIR "${JXL_LIBRARY}" DIRECTORY)
+            target_link_options(raw INTERFACE "LINKER:-rpath-link,${JXL_LIBRARY_DIR}")
+        endif()
+        if(JXL_THREADS_LIBRARY)
+            target_link_libraries(raw PRIVATE ${JXL_THREADS_LIBRARY})
+            target_compile_definitions(raw PRIVATE USE_JXL_THREADS)
+            list(APPEND LIBRAW_COMPILE_DEFS USE_JXL_THREADS)
+        endif()
+        message(STATUS "LibRaw: JPEG XL DNG support enabled (${JXL_LIBRARY})")
+    else()
+        message(WARNING "LibRaw: libjxl not found, JPEG XL compressed DNG will not unpack")
+    endif()
 endif()
 
 # Installation rules

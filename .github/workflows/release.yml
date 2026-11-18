@@ -84,6 +84,8 @@ jobs:
             -DCMAKE_PREFIX_PATH="$PWD/deps" \
             -DLIBRAW_ENABLE_ZLIB=ON \
             -DLIBRAW_ENABLE_JPEG=ON \
+            -DLIBRAW_ENABLE_JXL=ON \
+            -DLIBRAW_ENABLE_GPR=OFF \
             -DLIBRAW_ENABLE_LCMS2=OFF \
             -DLIBRAW_ENABLE_JASPER=OFF \
             ${{ matrix.cmake_extra }}
@@ -128,7 +130,7 @@ jobs:
           mkdir -p "stage/${PKG}/tools"
           if [ -d build/bin/Release ]; then BIN=build/bin/Release; else BIN=build/bin; fi
           cp -r "${BIN}/." "stage/${PKG}/tools/" 2>/dev/null || true
-          cp README.md LICENSE.LGPL LICENSE.CDDL SAMPLES.md "stage/${PKG}/" 2>/dev/null || true
+          cp README.md LICENSE.LGPL LICENSE.CDDL COPYRIGHT LICENSING.md SAMPLES.md "stage/${PKG}/" 2>/dev/null || true
           ( cd stage && cmake -E tar cf "../${PKG}.zip" --format=zip "${PKG}" )
           echo "PKG=${PKG}" >> "$GITHUB_ENV"
 

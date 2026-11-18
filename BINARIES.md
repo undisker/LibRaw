@@ -335,14 +335,22 @@ are noted in the host application's `installer/ATTRIBUTIONS.txt`.
   large third-party codebases with their own CVE histories (the DNG SDK has had
   roughly monthly security releases since late 2025) and, for the DNG SDK, an
   uncapped indemnity to Adobe on commercial distribution. Nothing the host application
-  opens needs them: GoPro `.GPR` (VC-5) is decoded by this fork's own
-  `src/decoders/vc5.cpp`, derived from GoPro's Apache-2.0/MIT reference decoder
-  and bit-identical to it on all 17 GPR files of the raw.pixls.us corpus. Its
-  licence notice is in the file header; list "GoPro GPR SDK (VC-5 decoder),
-  Apache-2.0 OR MIT" in `installer/ATTRIBUTIONS.txt`.
-- The one format still out of reach without a new dependency is DNG with
-  JPEG XL compression (TIFF compression 52546, e.g. Samsung Expert RAW); it
-  needs libjxl.
+  opens needs them.
+- GoPro `.GPR` (VC-5) is decoded by this fork's own `src/decoders/vc5.cpp`,
+  derived from GoPro's Apache-2.0/MIT reference decoder and bit-identical to it
+  on all 17 GPR files of the raw.pixls.us corpus. **It is a build option,
+  `LIBRAW_ENABLE_GPR`, OFF by default**: GoPro holds patents on this kind of
+  Bayer compression that appear to run until about mid-2027. `LICENSING.md`
+  section 3 has what is known and how to settle it. `libraw_capabilities()`
+  bit 21 tells a build with the decoder from one without.
+- DNG with JPEG XL compression (TIFF compression 52546 - Samsung Expert RAW,
+  recent Adobe DNG Converter output) is decoded through libjxl
+  (`LIBRAW_ENABLE_JXL`, ON; `libraw_capabilities()` bit 20). The loader calls
+  libjxl directly, not the DNG SDK. Limits: integer samples only, and a file
+  that combines Row/ColumnInterleaveFactor with more than one tile is refused -
+  no such file was available to establish how the two interact.
+- Licences, provenance and the attribution list a release needs are in
+  `LICENSING.md`.
 
 ---
 

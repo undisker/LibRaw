@@ -18,12 +18,6 @@
 
 #include "../../internal/dcraw_defs.h"
 
-void LibRaw::jxl_dng_load_raw_placeholder()
-{
-  // placeholder only, real decoding implemented in DNG SDK
-  throw LIBRAW_EXCEPTION_UNSUPPORTED_FORMAT;
-}
-
 void LibRaw::adobe_copy_pixel(unsigned row, unsigned col, ushort **rp)
 {
   int c;
