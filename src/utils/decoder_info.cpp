@@ -50,7 +50,7 @@ int LibRaw::get_decoder_info(libraw_decoder_info_t *d_info)
   {
     // GoPro GPR: native VC-5 decoder (if compiled with GPR SDK, the SDK is used instead)
     d_info->decoder_name = "vc5_dng_load_raw()";
-#if defined(USE_GPR_VC5)
+#if defined(USE_GPR_OPENSDK) || defined(USE_GPR_VC5)
     d_info->decoder_flags = LIBRAW_DECODER_HASCURVE | LIBRAW_DECODER_ADOBECOPYPIXEL;
 #elif !defined(USE_GPRSDK)
     d_info->decoder_flags = LIBRAW_DECODER_UNSUPPORTED_FORMAT;

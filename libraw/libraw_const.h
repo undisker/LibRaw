@@ -291,7 +291,8 @@ enum LibRaw_runtime_capabilities
   LIBRAW_CAPS_RAWSPEED3 = 1<<8,
   LIBRAW_CAPS_RAWSPEED_BITS = 1<<9,
   LIBRAW_CAPS_JXL = 1<<20, /* undisker fork: JPEG XL DNG through libjxl */
-  LIBRAW_CAPS_GPR_NATIVE = 1<<21, /* undisker fork: GoPro GPR through the built-in VC-5 decoder */
+  LIBRAW_CAPS_GPR_NATIVE = 1<<21, /* undisker fork: GoPro GPR through this fork's own VC-5 decoder (needs legal clarification) */
+  LIBRAW_CAPS_GPR_OPENSDK = 1<<22, /* undisker fork: GoPro GPR through GoPro's open-source VC-5 decoder */
 };
 
 enum LibRaw_colorspace {

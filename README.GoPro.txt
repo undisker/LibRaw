@@ -1,7 +1,8 @@
-NOTE FOR THIS FORK (undisker): GoPro .GPR files can be decoded natively by
-src/decoders/vc5.cpp, a build option (CMake: -DLIBRAW_ENABLE_GPR=ON, off by
-default - see LICENSING.md). Neither the GPR SDK nor the Adobe DNG SDK is
-needed, and this fork's shipped builds use neither. The text below describes upstream's
+NOTE FOR THIS FORK (undisker): GoPro .GPR files are decoded with the VC-5
+decoder of GoPro's SDK alone (vc5_decoder, vc5_common), compiled in by
+LIBRAW_ENABLE_GPR_SDK (default; src/decoders/vc5_opensdk.cpp), or with this
+fork's own decoder (LIBRAW_ENABLE_GPR, off: requires legal clarification).
+The Adobe DNG SDK is not needed for either. See LICENSING.md. The text below describes upstream's
 SDK-based route and is kept for reference only.
 
 GoPro HERO/Fusion .GPR files are DNG files by nature, but with own wavelet-based codec.

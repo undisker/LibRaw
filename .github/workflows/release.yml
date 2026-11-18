@@ -85,6 +85,7 @@ jobs:
             -DLIBRAW_ENABLE_ZLIB=ON \
             -DLIBRAW_ENABLE_JPEG=ON \
             -DLIBRAW_ENABLE_JXL=ON \
+            -DLIBRAW_ENABLE_GPR_SDK=ON \
             -DLIBRAW_ENABLE_GPR=OFF \
             -DLIBRAW_ENABLE_LCMS2=OFF \
             -DLIBRAW_ENABLE_JASPER=OFF \

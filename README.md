@@ -18,9 +18,11 @@ messages for how each layout was established.
 
 - **GoPro GPR** (HERO5-HERO11, Fusion): native VC-5 decoder, `src/decoders/vc5.cpp`, no
   GoPro or Adobe SDK. Bit-identical to GoPro's reference decoder on all 17 corpus files;
-  40 wavelet bands decode in parallel (4000x3000 in about 60 ms on 4 cores). **Build
-  option `LIBRAW_ENABLE_GPR`, OFF by default** because of an open patent question -
-  see [LICENSING.md](LICENSING.md).
+  40 wavelet bands decode in parallel (4000x3000 in about 60 ms on 4 cores). **It
+  requires legal clarification (patents) and is OFF by default**
+  (`LIBRAW_ENABLE_GPR`). The default build decodes GPR with GoPro's own open-source
+  VC-5 decoder instead, compiled in unmodified (`LIBRAW_ENABLE_GPR_SDK`): same output,
+  slower, and not robust against hostile files - see [LICENSING.md](LICENSING.md).
 - **DNG with JPEG XL compression** (DNG 1.7; Samsung Expert RAW): through libjxl,
   `LIBRAW_ENABLE_JXL`, without the Adobe DNG SDK.
 - **ARRIRAW** `.ari` (header version 3).
@@ -29,8 +31,8 @@ messages for how each layout was established.
 - **Raspberry Pi** `.raw`: `LIBRAW_ENABLE_6BY9RPI` is now ON by default.
 - **Sony lossless ARW**: tile-parallel decoding (upstream PR #886, carried as a cherry-pick).
 
-Of the 2020 corpus files, 1997 unpack in the default configuration and 2014 with
-`LIBRAW_ENABLE_GPR=ON`; the rest are two Casio QV `.cam`, one Light L16 `.lri` and three
+Of the 2020 corpus files, 2014 unpack in the default configuration (1997 with both GPR
+decoders off); the rest are two Casio QV `.cam`, one Light L16 `.lri` and three
 files that are not raw data at all.
 
 Licences and provenance of everything in this fork: [LICENSING.md](LICENSING.md).

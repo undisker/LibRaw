@@ -431,7 +431,7 @@ static const char *static_camera_list[] = {
 	"Google Pixel 9 Pro Fold",
 	"Google Pixel 10",
 	"Google Pixel 10 Pro XL",
-#if defined(USE_GPRSDK) || defined(USE_GPR_VC5)
+#if defined(USE_GPRSDK) || defined(USE_GPR_OPENSDK) || defined(USE_GPR_VC5)
 	"GoPro Fusion",
 	"GoPro HERO5",
 	"GoPro HERO6",

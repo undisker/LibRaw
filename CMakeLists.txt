@@ -18,8 +18,12 @@ option(LIBRAW_ENABLE_JASPER "Enable JasPer JPEG-2000 support" ON)
 option(LIBRAW_ENABLE_X3FTOOLS "Enable Sigma X3F support" ON)
 option(LIBRAW_ENABLE_6BY9RPI "Enable Raspberry Pi camera support" ON)
 option(LIBRAW_ENABLE_JXL "Enable JPEG XL compressed DNG (needs libjxl)" ON)
-# OFF until the distributor has decided on the patent question - LICENSING.md.
-option(LIBRAW_ENABLE_GPR "Enable the built-in GoPro GPR (VC-5) decoder" OFF)
+# GoPro GPR. Two decoders, see LICENSING.md section 3:
+#  - GoPro's own open-source VC-5 decoder, compiled in unmodified (default);
+#  - this fork's rewrite, which REQUIRES LEGAL CLARIFICATION before shipping.
+option(LIBRAW_ENABLE_GPR_SDK "GoPro GPR through GoPro's open-source VC-5 decoder (sources from cmake/build-deps.cmake)" ON)
+option(LIBRAW_ENABLE_GPR "GoPro GPR through this fork's own VC-5 decoder - requires legal clarification, see LICENSING.md" OFF)
+set(LIBRAW_GPR_SDK_DIR "" CACHE PATH "Checkout of github.com/gopro/gpr (default: <prefix>/_src/gpr of CMAKE_PREFIX_PATH, or dependencies/gpr)")
 option(LIBRAW_ENABLE_OPENMP "Enable OpenMP multithreading (decoders, demosaic, postprocessing)" ON)
 
 # Default to an optimized build when the user did not pick a configuration.
@@ -67,6 +71,7 @@ set(LIBRAW_SOURCES
     src/decoders/nikonhe.cpp
     src/decoders/jxl_dng.cpp
     src/decoders/vc5.cpp
+    src/decoders/vc5_opensdk.cpp
     src/decoders/pana8.cpp
     src/decoders/smal.cpp
     src/decoders/sony_arw6.cpp
@@ -441,13 +446,65 @@ if(LIBRAW_ENABLE_6BY9RPI)
     message(STATUS "LibRaw: Raspberry Pi camera support enabled")
 endif()
 
-# GoPro GPR: built-in VC-5 decoder (src/decoders/vc5.cpp), no SDK involved.
+# GoPro GPR through GoPro's own decoder: the vc5_decoder and vc5_common
+# libraries of the GPR SDK, compiled from an unmodified checkout into the
+# library. Only those two directories and the SDK's small "common" helpers
+# are used - not gpr_sdk, and not the copy of the Adobe DNG SDK that sits in
+# the same repository.
+set(LIBRAW_GPR_SDK_FOUND FALSE)
+if(LIBRAW_ENABLE_GPR_SDK)
+    set(_gpr_candidates "${LIBRAW_GPR_SDK_DIR}")
+    foreach(_p ${CMAKE_PREFIX_PATH})
+        list(APPEND _gpr_candidates "${_p}/_src/gpr")
+    endforeach()
+    list(APPEND _gpr_candidates "${CMAKE_CURRENT_SOURCE_DIR}/dependencies/gpr")
+    foreach(_d ${_gpr_candidates})
+        if(_d AND EXISTS "${_d}/source/lib/vc5_decoder/vc5_decoder.h")
+            set(LIBRAW_GPR_SDK_ROOT "${_d}/source/lib")
+            set(LIBRAW_GPR_SDK_FOUND TRUE)
+            break()
+        endif()
+    endforeach()
+    if(LIBRAW_GPR_SDK_FOUND)
+        file(GLOB _gpr_sources
+            "${LIBRAW_GPR_SDK_ROOT}/vc5_decoder/*.c"
+            "${LIBRAW_GPR_SDK_ROOT}/vc5_common/*.c"
+            "${LIBRAW_GPR_SDK_ROOT}/common/private/*.c")
+        add_library(gpr_vc5 OBJECT ${_gpr_sources})
+        target_include_directories(gpr_vc5 PRIVATE
+            "${LIBRAW_GPR_SDK_ROOT}/vc5_decoder"
+            "${LIBRAW_GPR_SDK_ROOT}/vc5_common"
+            "${LIBRAW_GPR_SDK_ROOT}/common/private"
+            "${LIBRAW_GPR_SDK_ROOT}/common/public")
+        # GoPro's functions have generic names (DecodeImage, GetBits, ...);
+        # keep them out of the library's exported symbols.
+        set_target_properties(gpr_vc5 PROPERTIES
+            C_VISIBILITY_PRESET hidden
+            POSITION_INDEPENDENT_CODE ON)
+        if(NOT MSVC)
+            target_compile_options(gpr_vc5 PRIVATE -w)
+        endif()
+        target_sources(raw PRIVATE $<TARGET_OBJECTS:gpr_vc5>)
+        target_include_directories(raw PRIVATE
+            "${LIBRAW_GPR_SDK_ROOT}/vc5_decoder"
+            "${LIBRAW_GPR_SDK_ROOT}/vc5_common"
+            "${LIBRAW_GPR_SDK_ROOT}/common/public")
+        target_compile_definitions(raw PRIVATE USE_GPR_OPENSDK)
+        list(APPEND LIBRAW_COMPILE_DEFS USE_GPR_OPENSDK)
+        message(STATUS "LibRaw: GoPro GPR through GoPro's VC-5 decoder (${LIBRAW_GPR_SDK_ROOT})")
+    else()
+        message(WARNING "LibRaw: GoPro GPR SDK sources not found (run cmake/build-deps.cmake or set LIBRAW_GPR_SDK_DIR); GPR files will not unpack")
+    endif()
+endif()
+
+# GoPro GPR through this fork's own VC-5 decoder (src/decoders/vc5.cpp).
 if(LIBRAW_ENABLE_GPR)
     target_compile_definitions(raw PRIVATE USE_GPR_VC5)
     list(APPEND LIBRAW_COMPILE_DEFS USE_GPR_VC5)
-    message(STATUS "LibRaw: GoPro GPR (VC-5) decoder enabled - see LICENSING.md")
-else()
-    message(STATUS "LibRaw: GoPro GPR (VC-5) decoder disabled (LIBRAW_ENABLE_GPR=OFF)")
+    message(WARNING "LibRaw: this fork's own VC-5 decoder is enabled. It REQUIRES LEGAL CLARIFICATION before it is shipped - LICENSING.md section 3.")
+    if(LIBRAW_GPR_SDK_FOUND)
+        message(STATUS "LibRaw: both GPR decoders requested; GoPro's is the one compiled in")
+    endif()
 endif()
 
 # JPEG XL compressed DNG (DNG 1.7, compression 52546) through libjxl.

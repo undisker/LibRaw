@@ -231,7 +231,9 @@ unsigned LibRaw::capabilities()
 #ifdef USE_JXL
   ret |= LIBRAW_CAPS_JXL;
 #endif
-#ifdef USE_GPR_VC5
+#if defined(USE_GPR_OPENSDK)
+  ret |= LIBRAW_CAPS_GPR_OPENSDK;
+#elif defined(USE_GPR_VC5)
   ret |= LIBRAW_CAPS_GPR_NATIVE;
 #endif
   return ret;

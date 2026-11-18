@@ -46,12 +46,27 @@ it under the terms of the one of two licenses as you choose:
 
 #include "../../internal/dcraw_defs.h"
 
-#ifndef USE_GPR_VC5
+/* ---------------------------------------------------------------------------
+   STATUS: REQUIRES LEGAL CLARIFICATION BEFORE IT IS SHIPPED.
 
-/* Compiled out. The decoder is a build option (CMake: LIBRAW_ENABLE_GPR)
-   because GoPro holds patents on this way of compressing Bayer data and whether
-   to ship it is a decision for whoever distributes the binary - see
-   LICENSING.md. */
+   This is an independent rewrite of GoPro's decoder. GoPro holds patents on
+   this way of compressing Bayer data (US 8,014,597 and continuations; the
+   last runs until April 2030). Whether the patent licence of Apache-2.0
+   reaches a rewrite, as opposed to GoPro's code itself, is not settled.
+
+   It is therefore OFF by default (CMake: LIBRAW_ENABLE_GPR, macro
+   USE_GPR_VC5) and the default build reads GPR files with GoPro's own,
+   unmodified decoder instead (vc5_opensdk.cpp, USE_GPR_OPENSDK). If both
+   macros are defined, GoPro's decoder is used and this one is not compiled.
+   See LICENSING.md, section 3.
+   --------------------------------------------------------------------------- */
+#if defined(USE_GPR_OPENSDK)
+
+/* vc5_dng_load_raw() is in vc5_opensdk.cpp */
+
+#elif !defined(USE_GPR_VC5)
+
+/* Neither decoder is compiled in */
 void LibRaw::vc5_dng_load_raw()
 {
   throw LIBRAW_EXCEPTION_UNSUPPORTED_FORMAT;
@@ -1397,4 +1412,4 @@ void LibRaw::vc5_dng_load_raw()
       RAW(raw_height - 1, col) = 0;
 }
 
-#endif /* USE_GPR_VC5 */
+#endif /* USE_GPR_OPENSDK / USE_GPR_VC5 */

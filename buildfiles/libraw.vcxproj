@@ -154,6 +154,7 @@
     <ClCompile Include="..\src\decoders\nikonhe.cpp" />
     <ClCompile Include="..\src\decoders\vc5.cpp" />
     <ClCompile Include="..\src\decoders\jxl_dng.cpp" />
+    <ClCompile Include="..\src\decoders\vc5_opensdk.cpp" />
     <ClCompile Include="..\src\decoders\sonycc.cpp" />
     <ClCompile Include="..\src\decoders\sony_arw6.cpp" />
     <ClCompile Include="..\src\decompressors\losslessjpeg.cpp" />

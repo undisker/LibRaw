@@ -44,6 +44,14 @@ set(JXL_REPO "https://github.com/libjxl/libjxl.git")
 set(JXL_TAG  "v0.11.1")
 set(JXL_SUBMODULES third_party/highway third_party/brotli third_party/lcms)
 
+# GoPro's GPR SDK, for its VC-5 decoder only (source/lib/vc5_decoder,
+# vc5_common, common). It is not built here: LibRaw's own CMakeLists compiles
+# those three directories, unmodified, into the library (LIBRAW_ENABLE_GPR_SDK)
+# and finds the checkout at <prefix>/_src/gpr. The repository has no release
+# tags, so a commit is pinned.
+set(GPR_REPO   "https://github.com/gopro/gpr.git")
+set(GPR_COMMIT "446c736a38fb14f51343605c0780d347dc602f89")   # 2026-05-05
+
 if(NOT DEFINED PREFIX OR PREFIX STREQUAL "")
     set(PREFIX "${CMAKE_CURRENT_LIST_DIR}/../dependencies/prefix")
 endif()
@@ -87,6 +95,22 @@ function(fetch_dep aName aRepo aTag aDir)
             message(FATAL_ERROR "build-deps: fetching the submodules of ${aName} failed (${iRc})")
         endif()
     endif()
+endfunction()
+
+# Fetch <repo> at exactly <commit> into <dir> (for repositories without tags).
+function(fetch_commit aName aRepo aCommit aDir)
+    if(EXISTS "${aDir}/.git")
+        message(STATUS "build-deps: ${aName} already present at ${aDir}")
+        return()
+    endif()
+    message(STATUS "build-deps: fetching ${aName} ${aCommit}")
+    file(MAKE_DIRECTORY "${aDir}")
+    foreach(iCmd "init;-q" "remote;add;origin;${aRepo}" "fetch;-q;--depth;1;origin;${aCommit}" "checkout;-q;FETCH_HEAD")
+        execute_process(COMMAND "${GIT_EXECUTABLE}" -C "${aDir}" ${iCmd} RESULT_VARIABLE iRc)
+        if(NOT iRc EQUAL 0)
+            message(FATAL_ERROR "build-deps: fetching ${aName} failed at 'git ${iCmd}' (${iRc})")
+        endif()
+    endforeach()
 endfunction()
 
 # Configure, build and install one dependency into PREFIX.
@@ -163,5 +187,7 @@ build_dep(libjxl "${WORK}/libjxl"
     -DJPEGXL_FORCE_SYSTEM_BROTLI=OFF
     -DJPEGXL_FORCE_SYSTEM_HWY=OFF
 )
+
+fetch_commit(gpr "${GPR_REPO}" "${GPR_COMMIT}" "${WORK}/gpr")
 
 message(STATUS "build-deps: done, prefix = ${PREFIX}")
