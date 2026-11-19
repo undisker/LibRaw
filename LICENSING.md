@@ -282,7 +282,8 @@ that in speed and in a patch to maintain. The fork's faster,
 hardened decoder is there for the day the patent question is answered:
 
 1. Ask GoPro in writing whether a decoder derived from `gopro/gpr` under
-   Apache-2.0 is covered. An answer either way settles it.
+   Apache-2.0 is covered. An answer either way settles it. **Open task**,
+   with a draft letter: `GoPro/patent-inquiry.md`.
 2. Have a patent attorney read the live claims of the 8,014,597 family against
    a decode-only implementation, and check counterparts in the countries the
    product is sold in. **[lawyer]**
@@ -311,6 +312,7 @@ repeated here from general knowledge, not from a document read for this file.
       Gozdz); X3F tools (Roland Karlsson); Adobe DNG SDK 1.4 portions; zlib-ng;
       libjpeg-turbo (IJG notice: "this software is based in part on the work of
       the Independent JPEG Group"); libjxl, highway, brotli, Little CMS.
+- [ ] GoPro's answer to `GoPro/patent-inquiry.md` recorded, if one came.
 - [ ] GPR decided: GoPro's decoder (default), none, or - only after legal
       clarification - this fork's. With either decoder, GoPro's copyright
       notice and the Apache-2.0 text are in the attribution list.
