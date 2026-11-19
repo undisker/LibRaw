@@ -30,7 +30,8 @@ Copyright (c) 2005 Adobe Systems Incorporated, licensed under MIT license
 GoPro GPR files are decoded with the VC-5 decoder of the GoPro GPR SDK
 (https://github.com/gopro/gpr; vc5_decoder, vc5_common), compiled into the
 library when LIBRAW_ENABLE_GPR_SDK is set: (C) Copyright 2018 GoPro Inc,
-licensed under Apache License 2.0 or MIT license. The alternative decoder
+licensed under Apache License 2.0 or MIT license, compiled with the
+modifications in GoPro/gpr-vc5-hardening.patch. The alternative decoder
 src/decoders/vc5.cpp (LIBRAW_ENABLE_GPR) is derived from the same code.
 
 The Sony lossless ARW tile decoder comes from upstream pull request #886 and is

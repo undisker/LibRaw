@@ -1,0 +1,647 @@
+Hardening patch for the VC-5 decoder of the GoPro GPR SDK
+==========================================================
+
+Applies to https://github.com/gopro/gpr at commit
+446c736a38fb14f51343605c0780d347dc602f89 (cmake/build-deps.cmake fetches that
+commit and applies this file). Only source/lib/vc5_decoder, vc5_common and
+common are touched - the directories LibRaw compiles.
+
+THIS IS A MODIFICATION OF GOPRO'S FILES (Apache License 2.0, section 4(b)).
+Every change is marked in the code with a comment starting "hardening:".
+
+What it does: GoPro's decoder trusts its input; on damaged files it wrote and
+read past its buffers. The patch adds bounds and consistency checks that
+return an existing CODEC_ERROR code, checks allocation results, and replaces
+left shifts of negative values with multiplications (same result). Output on
+valid streams is unchanged, except that images whose smallest wavelet band is
+under 3x3 pixels (below about 34x34) are now rejected: the inverse transform
+read outside its buffers for them.
+
+Original code (C) Copyright 2018 GoPro Inc, Apache License 2.0 or MIT.
+Changes made for the undisker LibRaw fork, 2026, under the same terms.
+
+diff --git a/source/lib/vc5_common/bitstream.c b/source/lib/vc5_common/bitstream.c
+index cef4312..9617b28 100755
+--- a/source/lib/vc5_common/bitstream.c
++++ b/source/lib/vc5_common/bitstream.c
+@@ -118,7 +118,13 @@ BITWORD GetBits(BITSTREAM *stream, BITCOUNT count)
+         bits = (stream->buffer >> (bit_word_count - count));
+         
+         // Reduce the number of bits in the bit buffer
+-        stream->buffer <<= count;
++        /* hardening: a shift by the full word size is undefined */
++        if (count < bit_word_count) {
++            stream->buffer <<= count;
++        }
++        else {
++            stream->buffer = 0;
++        }
+         stream->count = (stream->count - count);
+     }
+     else
+@@ -269,6 +275,16 @@ CODEC_ERROR GetBuffer(BITSTREAM *bitstream)
+     // The bit buffer should be empty
+     assert(bitstream->count == 0);
+     
++    /* hardening: signal an underflow (and supply zero bits) when the memory stream is exhausted */
++    if (bitstream->stream->type == STREAM_TYPE_MEMORY &&
++        bitstream->stream->byte_count >= bitstream->stream->location.memory.size)
++    {
++        bitstream->error = BITSTREAM_ERROR_UNDERFLOW;
++        bitstream->buffer = 0;
++        bitstream->count = bit_word_count;
++        return CodecErrorBitstream(bitstream->error);
++    }
++
+     // Fill the bit buffer with a word from the byte stream
+     bitstream->buffer = Swap32(GetWord(bitstream->stream));
+     bitstream->count = bit_word_count;
+diff --git a/source/lib/vc5_common/image.c b/source/lib/vc5_common/image.c
+index 0af14fe..d2bbbd2 100755
+--- a/source/lib/vc5_common/image.c
++++ b/source/lib/vc5_common/image.c
+@@ -67,13 +67,18 @@ CODEC_ERROR InitRGBImage(RGB_IMAGE *image)
+ CODEC_ERROR AllocImage(gpr_allocator *allocator, IMAGE *image, DIMENSION width, DIMENSION height, PIXEL_FORMAT format)
+ {
+     size_t size = 0;
+-    DIMENSION pitch = 0;
++    /* hardening: the pitch of a wide image does not fit in a DIMENSION */
++    size_t pitch = 0;
+     
+     assert(image != NULL);
+     
+     // Compute the pitch from the width and format
+     pitch = ImagePitch(width, format);
+     assert(pitch > 0);
++    /* hardening: reject pixel formats with an unknown pitch and empty images */
++    if (pitch == 0 || height == 0) {
++        return CODEC_ERROR_UNSUPPORTED_FORMAT;
++    }
+     
+ #if VC5_ENABLED_PART(VC5_PART_COLOR_SAMPLING)
+     size = height * pitch;
+@@ -120,9 +125,10 @@ CODEC_ERROR ReleaseImage(gpr_allocator *allocator, IMAGE *image)
+ 	The return value is zero if the pitch could not be computed for the
+ 	specified width and format.
+  */
+-DIMENSION ImagePitch(DIMENSION width, PIXEL_FORMAT format)
++/* hardening: the pitch of a wide image does not fit in a DIMENSION */
++size_t ImagePitch(DIMENSION width, PIXEL_FORMAT format)
+ {
+-    DIMENSION pitch = 0;
++    size_t pitch = 0;
+     
+     switch (format)
+     {
+diff --git a/source/lib/vc5_common/image.h b/source/lib/vc5_common/image.h
+index 4739727..ccf74bb 100755
+--- a/source/lib/vc5_common/image.h
++++ b/source/lib/vc5_common/image.h
+@@ -123,7 +123,8 @@ extern "C" {
+     
+     CODEC_ERROR ReleaseImage(gpr_allocator *allocator, IMAGE *image);
+     
+-    DIMENSION ImagePitch(DIMENSION width, PIXEL_FORMAT format);
++    /* hardening: the pitch of a wide image does not fit in a DIMENSION */
++    size_t ImagePitch(DIMENSION width, PIXEL_FORMAT format);
+     
+     CODEC_ERROR SetImageFormat(IMAGE *image,
+                                DIMENSION width,
+diff --git a/source/lib/vc5_common/stream.c b/source/lib/vc5_common/stream.c
+index 59ecc7d..ed3bb17 100755
+--- a/source/lib/vc5_common/stream.c
++++ b/source/lib/vc5_common/stream.c
+@@ -117,7 +117,13 @@ BITWORD GetWord(STREAM *stream)
+             break;
+             
+         case STREAM_TYPE_MEMORY:
+-            memcpy(&buffer, (uint8_t *)stream->location.memory.buffer + stream->byte_count, sizeof(buffer));
++            /* hardening: never read past the end of the memory stream (missing bytes read as zero) */
++            if (stream->byte_count < stream->location.memory.size)
++            {
++                size_t remaining = stream->location.memory.size - stream->byte_count;
++                memcpy(&buffer, (uint8_t *)stream->location.memory.buffer + stream->byte_count,
++                       (remaining < sizeof(buffer)) ? remaining : sizeof(buffer));
++            }
+             break;
+             
+         default:
+@@ -146,7 +152,9 @@ uint8_t GetByte(STREAM *stream)
+             break;
+             
+         case STREAM_TYPE_MEMORY:
+-            byte = ((uint8_t *)stream->location.memory.buffer)[stream->byte_count];            
++            /* hardening: never read past the end of the memory stream (missing bytes read as zero) */
++            if (stream->byte_count < stream->location.memory.size)
++                byte = ((uint8_t *)stream->location.memory.buffer)[stream->byte_count];
+             break;
+             
+         default:
+@@ -262,6 +270,14 @@ CODEC_ERROR RewindStream(STREAM *stream)
+ */
+ CODEC_ERROR SkipBytes(STREAM *stream, size_t size)
+ {
++	/* hardening: fail instead of skipping past the end of a memory stream */
++	if (stream->type == STREAM_TYPE_MEMORY &&
++		(stream->byte_count > stream->location.memory.size ||
++		 size > stream->location.memory.size - stream->byte_count))
++	{
++		return CodecErrorBitstream(BITSTREAM_ERROR_UNDERFLOW);
++	}
++
+ 	for (; size > 0; size--)
+ 	{
+ 		(void)GetByte(stream);
+diff --git a/source/lib/vc5_common/wavelet.c b/source/lib/vc5_common/wavelet.c
+index ec7e31a..7038803 100755
+--- a/source/lib/vc5_common/wavelet.c
++++ b/source/lib/vc5_common/wavelet.c
+@@ -100,7 +100,10 @@ CODEC_ERROR ReleaseWavelet(gpr_allocator *allocator, WAVELET *wavelet)
+ 
+     PIXEL* data_all_bands = wavelet->data[0];
+     
+-    allocator->Free(data_all_bands);
++    /* hardening: do not pass a null pointer to the free callback (the wavelet has no bands) */
++    if (data_all_bands != NULL) {
++        allocator->Free(data_all_bands);
++    }
+ 
+     for (band = 0; band < MAX_BAND_COUNT; band++) {
+ 		wavelet->data[band] = NULL;
+diff --git a/source/lib/vc5_decoder/component.c b/source/lib/vc5_decoder/component.c
+index c224dc5..1f4b599 100755
+--- a/source/lib/vc5_decoder/component.c
++++ b/source/lib/vc5_decoder/component.c
+@@ -31,11 +31,21 @@ CODEC_ERROR ParseInverseComponentTransform(DECODER *decoder, BITSTREAM *stream,
+ #if VC5_ENABLED_PART(VC5_PART_COLOR_SAMPLING)
+     if (IsPartEnabled(decoder->enabled_parts, VC5_PART_COLOR_SAMPLING))
+     {
++        /* hardening: avoid integer overflow in the component count */
++        if (codec->pattern_width > UINT8_MAX || codec->pattern_height > UINT8_MAX) {
++            return CODEC_ERROR_PATTERN_DIMENSIONS;
++        }
++
+         // Recompute the number of components to account for color difference component subsampling
+         component_count = codec->pattern_width * codec->pattern_height + 2;
+     }
+ #endif
+     
++    /* hardening: the transform must fit in the chunk payload (this also bounds the loops below) */
++    if ((size_t)(component_count + 2) * component_count > chunk_size * sizeof(SEGMENT)) {
++        return CODEC_ERROR_SYNTAX_ERROR;
++    }
++
+     // Compute the padding (in bytes) from the end of the component transform to the end of the chunk payload
+     padding = (int)((chunk_size * sizeof(SEGMENT)) - ((component_count + 2) * component_count) * sizeof(uint8_t));
+     
+@@ -64,7 +74,11 @@ CODEC_ERROR ParseInverseComponentTransform(DECODER *decoder, BITSTREAM *stream,
+     }
+     
+     // Skip the padding at the end of the chunk payload
+-    GetBits(stream, 8 * padding);
++    /* hardening: skip one byte at a time (the bit count must not exceed the size of a bitstream word) */
++    for (i = 0; i < padding; i++)
++    {
++        GetBits(stream, 8);
++    }
+     
+     // Should be at the end of the last segment in the chunk
+     assert(IsAlignedSegment(stream));
+@@ -83,11 +97,21 @@ CODEC_ERROR ParseInverseComponentPermutation(DECODER *decoder, BITSTREAM *stream
+ #if VC5_ENABLED_PART(VC5_PART_COLOR_SAMPLING)
+     if (IsPartEnabled(decoder->enabled_parts, VC5_PART_COLOR_SAMPLING))
+     {
++        /* hardening: avoid integer overflow in the component count */
++        if (codec->pattern_width > UINT8_MAX || codec->pattern_height > UINT8_MAX) {
++            return CODEC_ERROR_PATTERN_DIMENSIONS;
++        }
++
+         // Recompute the number of components to account for color difference component subsampling
+         component_count = codec->pattern_width * codec->pattern_height + 2;
+     }
+ #endif
+     
++    /* hardening: the permutation must fit in the chunk payload (this also bounds the loop below) */
++    if ((size_t)component_count > chunk_size * sizeof(SEGMENT)) {
++        return CODEC_ERROR_SYNTAX_ERROR;
++    }
++
+     // Compute the padding (in bytes) from the end of the component transform to the end of the chunk payload
+     padding = (int)((chunk_size * sizeof(SEGMENT)) - component_count * sizeof(uint8_t));
+     
+@@ -102,7 +126,11 @@ CODEC_ERROR ParseInverseComponentPermutation(DECODER *decoder, BITSTREAM *stream
+     }
+     
+     // Skip the padding at the end of the chunk payload
+-    GetBits(stream, 8 * padding);
++    /* hardening: skip one byte at a time (the bit count must not exceed the size of a bitstream word) */
++    for (i = 0; i < padding; i++)
++    {
++        GetBits(stream, 8);
++    }
+     
+     // Should be at the end of the last segment in the chunk
+     assert(IsAlignedSegment(stream));
+diff --git a/source/lib/vc5_decoder/decoder.c b/source/lib/vc5_decoder/decoder.c
+index 73aa3b8..7159cac 100755
+--- a/source/lib/vc5_decoder/decoder.c
++++ b/source/lib/vc5_decoder/decoder.c
+@@ -205,10 +205,23 @@ CODEC_ERROR DecodeImage(STREAM *stream, IMAGE *packed_image, RGB_IMAGE *rgb_imag
+             SetOutputImageFormat(&decoder, parameters, &packed_width, &packed_height, &packed_format);
+ 
+             // Allocate the image buffer for output of the image packing process
+-            AllocImage(decoder.allocator, packed_image, packed_width, packed_height, packed_format);
++            /* hardening: check the allocation of the output image */
++            error = AllocImage(decoder.allocator, packed_image, packed_width, packed_height, packed_format);
++            if (error != CODEC_ERROR_OKAY) {
++                return error;
++            }
++
++            /* hardening: the last column and row of an image with odd dimensions are not written below */
++            if ((packed_width % 2) != 0 || (packed_height % 2) != 0) {
++                memset(packed_image->buffer, 0, packed_image->size);
++            }
+             
+             // Pack the component arrays into the output image
+-            ImageRepackingProcess(&unpacked_image, packed_image, parameters);
++            /* hardening: do not return an output image that could not be packed */
++            error = ImageRepackingProcess(&unpacked_image, packed_image, parameters);
++            if (error != CODEC_ERROR_OKAY) {
++                return error;
++            }
+             break;
+ 
+         case GPR_RGB_RESOLUTION_HALF:
+@@ -591,6 +604,11 @@ CODEC_ERROR AllocDecoderTransforms(DECODER *decoder)
+     
+     channel_count = decoder->codec.channel_count;
+     wavelet_count = decoder->wavelet_count;
++
++    /* hardening: the channel count indexes fixed-size arrays and at least one channel is required */
++    if (channel_count < 1 || channel_count > MAX_CHANNEL_COUNT) {
++        return CODEC_ERROR_BITSTREAM_SYNTAX;
++    }
+     
+     for (channel_number = 0; channel_number < channel_count; channel_number++)
+     {
+@@ -633,7 +651,16 @@ CODEC_ERROR AllocDecoderTransforms(DECODER *decoder)
+             wavelet_width /= 2;
+             wavelet_height /= 2;
+             
++            /* hardening: the inverse wavelet transform needs at least three rows and columns in every band */
++            if (wavelet_width < 3 || wavelet_height < 3) {
++                return CODEC_ERROR_IMAGE_DIMENSIONS;
++            }
++
+             wavelet = CreateWavelet(allocator, wavelet_width, wavelet_height);
++            /* hardening: check the allocation result */
++            if (wavelet == NULL) {
++                return CODEC_ERROR_OUTOFMEMORY;
++            }
+             decoder->transform[channel_number].wavelet[wavelet_index] = wavelet;
+         }
+     }
+@@ -746,6 +773,11 @@ CODEC_ERROR AllocateChannelWavelets(DECODER *decoder, int channel_number)
+             assert(wavelet != NULL);
+             
+             decoder->transform[channel_number].wavelet[wavelet_index] = wavelet;
++
++            /* hardening: check the allocation result (the stale pointer was cleared by the line above) */
++            if (wavelet == NULL) {
++                return CODEC_ERROR_OUTOFMEMORY;
++            }
+         }
+         
+         // Pad the wavelet width if necessary
+@@ -1147,6 +1179,10 @@ CODEC_ERROR UpdateCodecState(DECODER *decoder, BITSTREAM *stream, TAGVALUE segme
+     {
+         case CODEC_TAG_ChannelCount:		// Number of channels in the transform
+             assert(0 < value && value <= MAX_CHANNEL_COUNT);
++            /* hardening: the channel count indexes fixed-size arrays */
++            if (! (0 < value && value <= MAX_CHANNEL_COUNT)) {
++                return CODEC_ERROR_BITSTREAM_SYNTAX;
++            }
+             codec->channel_count = (uint_least8_t)value;
+             codec->header = true;
+             break;
+@@ -1419,7 +1455,8 @@ CODEC_ERROR UpdateCodecState(DECODER *decoder, BITSTREAM *stream, TAGVALUE segme
+                 else if (chunk_size > 0)
+                 {
+                     // Skip processing the payload of this optional chunk element
+-                    SkipPayload(stream, chunk_size);
++                    /* hardening: fail if the payload extends past the end of the bitstream */
++                    error = SkipPayload(stream, chunk_size);
+                 }
+             }
+             break;
+@@ -1438,6 +1475,12 @@ CODEC_ERROR UpdateCodecState(DECODER *decoder, BITSTREAM *stream, TAGVALUE segme
+     {
+         if (optional)
+         {
++            /* hardening: an optional header parameter would bypass the checks below (duplicates,
++               parameters after the end of the header) and could change the image dimensions or
++               the channel count after the wavelets have been allocated */
++            if (IsHeaderParameter(tag)) {
++                return CODEC_ERROR_REQUIRED_PARAMETER;
++            }
+ #if VC5_ENABLED_PART(VC5_PART_SECTIONS)
+             if (tag == CODEC_TAG_HeaderSectionTag)
+             {
+@@ -1483,7 +1526,11 @@ CODEC_ERROR UpdateCodecState(DECODER *decoder, BITSTREAM *stream, TAGVALUE segme
+         !decoder->memory_allocated)
+     {
+         // Allocate space for the wavelet transforms
+-        AllocDecoderTransforms(decoder);
++        /* hardening: decoding cannot continue without valid wavelets in every channel */
++        error = AllocDecoderTransforms(decoder);
++        if (error != CODEC_ERROR_OKAY) {
++            return error;
++        }
+         
+         // Allocate all buffers required for decoding
+         AllocDecoderBuffers(decoder);
+@@ -1501,6 +1548,12 @@ CODEC_ERROR UpdateCodecState(DECODER *decoder, BITSTREAM *stream, TAGVALUE segme
+     {
+         const int channel_number = codec->channel_number;
+         
++        /* hardening: the channel number and the subband number index fixed-size arrays */
++        if (channel_number >= codec->channel_count || channel_number >= MAX_CHANNEL_COUNT ||
++            codec->subband_number >= MAX_SUBBAND_COUNT) {
++            return CODEC_ERROR_BITSTREAM_SYNTAX;
++        }
++
+         // Have the channel dimensions been initialized?
+         if (!decoder->channel[channel_number].initialized)
+         {
+@@ -1746,7 +1799,17 @@ CODEC_ERROR DecodeChannelSubband(DECODER *decoder, BITSTREAM *input, size_t chun
+     (void)chunk_size;
+     
+     // Allocate the wavelets for this channel if not already allocated
+-    AllocateChannelWavelets(decoder, channel_number);
++    /* hardening: check that the wavelets could be allocated */
++    error = AllocateChannelWavelets(decoder, channel_number);
++    if (error != CODEC_ERROR_OKAY) {
++        return error;
++    }
++
++    /* hardening: a band can be decoded only once (a repeated band would redo the inverse transform into
++       a lowpass band that is already in use and the decoding time would not be bounded by the image size) */
++    if ((decoder->transform[channel_number].wavelet[index]->valid_band_mask & (1 << band)) != 0) {
++        return CODEC_ERROR_BITSTREAM_SYNTAX;
++    }
+     
+     // Is this a highpass band?
+     if (subband_number > 0)
+@@ -1857,7 +1920,10 @@ CODEC_ERROR ReconstructWaveletBand(DECODER *decoder, int channel, WAVELET *wavel
+         assert(BandsAllValid(wavelet));
+         
+         // Decode the lowpass band in the wavelet one lower level than the input wavelet
+-        TransformInverseSpatialQuantLowpass(decoder->allocator, wavelet, lowpass, prescale);
++        /* hardening: the lowpass band is not valid if the inverse transform failed */
++        if (TransformInverseSpatialQuantLowpass(decoder->allocator, wavelet, lowpass, prescale) != CODEC_ERROR_OKAY) {
++            return CODEC_ERROR_DECODING_SUBBAND;
++        }
+         
+         // Update the band valid flags
+         UpdateWaveletValidBandMask(lowpass, 0);
+@@ -1928,6 +1994,11 @@ CODEC_ERROR DecodeLowpassBand(DECODER *decoder, BITSTREAM *stream, WAVELET *wave
+     // Align the bitstream to the next tag value pair
+     AlignBitsSegment(stream);
+     
++    /* hardening: the band is not valid if it was read past the end of the bitstream */
++    if (stream->error != BITSTREAM_ERROR_OKAY) {
++        return CodecErrorBitstream(stream->error);
++    }
++
+     // Return indication of lowpass decoding success
+     return error;
+ }
+@@ -2020,6 +2091,10 @@ CODEC_ERROR DecodeBandRuns(BITSTREAM *stream, CODEBOOK *codebook, PIXEL *data,
+         
+         // Check that the run does not extend past the end of the band
+         assert(run.count <= data_count);
++        /* hardening: reject a run that extends past the end of the band */
++        if (run.count > data_count) {
++            return CODEC_ERROR_DECODING_SUBBAND;
++        }
+         
+         // Copy the value into the specified number of pixels in the band
+         while (run.count > 0)
+diff --git a/source/lib/vc5_decoder/inverse.c b/source/lib/vc5_decoder/inverse.c
+index cacc7be..277af7e 100755
+--- a/source/lib/vc5_decoder/inverse.c
++++ b/source/lib/vc5_decoder/inverse.c
+@@ -218,7 +218,8 @@ STATIC CODEC_ERROR InvertHorizontalDescale16s(PIXEL *lowpass, PIXEL *highpass, P
+     even += highpass[column];
+     
+     // Remove any scaling used during encoding
+-    even <<= descale_shift;
++    /* hardening: multiply instead of left shifting a negative value (same result) */
++    even *= (1 << descale_shift);
+     
+     // The lowpass result should be a positive number
+     //assert(0 <= even && even <= INT16_MAX);
+@@ -234,7 +235,8 @@ STATIC CODEC_ERROR InvertHorizontalDescale16s(PIXEL *lowpass, PIXEL *highpass, P
+     odd -= highpass[column];
+     
+     // Remove any scaling used during encoding
+-    odd <<= descale_shift;
++    /* hardening: multiply instead of left shifting a negative value (same result) */
++    odd *= (1 << descale_shift);
+     
+     // The lowpass result should be a positive number
+     //assert(0 <= odd && odd <= INT16_MAX);
+@@ -262,7 +264,8 @@ STATIC CODEC_ERROR InvertHorizontalDescale16s(PIXEL *lowpass, PIXEL *highpass, P
+         even += highpass[column];
+         
+         // Remove any scaling used during encoding
+-        even <<= descale_shift;
++        /* hardening: multiply instead of left shifting a negative value (same result) */
++        even *= (1 << descale_shift);
+         
+         // The lowpass result should be a positive number
+         //assert(0 <= even && even <= INT16_MAX);
+@@ -281,7 +284,8 @@ STATIC CODEC_ERROR InvertHorizontalDescale16s(PIXEL *lowpass, PIXEL *highpass, P
+         odd -= highpass[column];
+         
+         // Remove any scaling used during encoding
+-        odd <<= descale_shift;
++        /* hardening: multiply instead of left shifting a negative value (same result) */
++        odd *= (1 << descale_shift);
+         
+         // The lowpass result should be a positive number
+         //assert(0 <= odd && odd <= INT16_MAX);
+@@ -308,7 +312,8 @@ STATIC CODEC_ERROR InvertHorizontalDescale16s(PIXEL *lowpass, PIXEL *highpass, P
+     even += highpass[column];
+     
+     // Remove any scaling used during encoding
+-    even <<= descale_shift;
++    /* hardening: multiply instead of left shifting a negative value (same result) */
++    even *= (1 << descale_shift);
+     
+     // The lowpass result should be a positive number
+     //assert(0 <= even && even <= INT16_MAX);
+@@ -329,7 +334,8 @@ STATIC CODEC_ERROR InvertHorizontalDescale16s(PIXEL *lowpass, PIXEL *highpass, P
+         odd -= highpass[column];
+         
+         // Remove any scaling used during encoding
+-        odd <<= descale_shift;
++        /* hardening: multiply instead of left shifting a negative value (same result) */
++        odd *= (1 << descale_shift);
+         
+         // The lowpass result should be a positive number
+         //assert(0 <= odd && odd <= INT16_MAX);
+@@ -416,6 +422,13 @@ CODEC_ERROR InvertSpatialQuant16s(gpr_allocator *allocator,
+     highlow_line = (PIXEL *)allocator->Alloc(buffer_row_size);
+     highhigh_line = (PIXEL *)allocator->Alloc(buffer_row_size);
+     
++    /* hardening: check the allocation results */
++    if (even_lowpass == NULL || even_highpass == NULL || odd_lowpass == NULL || odd_highpass == NULL ||
++        lowhigh_line[0] == NULL || lowhigh_line[1] == NULL || lowhigh_line[2] == NULL ||
++        highlow_line == NULL || highhigh_line == NULL) {
++        return CODEC_ERROR_OUTOFMEMORY;
++    }
++
+     // Convert pitch from bytes to pixels
+     lowlow_pitch /= sizeof(PIXEL);
+     lowhigh_pitch /= sizeof(PIXEL);
+@@ -826,6 +839,13 @@ CODEC_ERROR InvertSpatialQuantDescale16s(gpr_allocator *allocator,
+     highlow_line = (PIXEL *)allocator->Alloc(buffer_row_size);
+     highhigh_line = (PIXEL *)allocator->Alloc(buffer_row_size);
+     
++    /* hardening: check the allocation results */
++    if (even_lowpass == NULL || even_highpass == NULL || odd_lowpass == NULL || odd_highpass == NULL ||
++        lowhigh_line[0] == NULL || lowhigh_line[1] == NULL || lowhigh_line[2] == NULL ||
++        highlow_line == NULL || highhigh_line == NULL) {
++        return CODEC_ERROR_OUTOFMEMORY;
++    }
++
+     // Convert pitch from bytes to pixels
+     lowlow_pitch /= sizeof(PIXEL);
+     lowhigh_pitch /= sizeof(PIXEL);
+diff --git a/source/lib/vc5_decoder/raw.c b/source/lib/vc5_decoder/raw.c
+index 7cbac6f..d04e0d2 100755
+--- a/source/lib/vc5_decoder/raw.c
++++ b/source/lib/vc5_decoder/raw.c
+@@ -45,6 +45,19 @@ CODEC_ERROR PackComponentsToRAW(const UNPACKED_IMAGE *image,
+     
+     int row;
+     
++    /* hardening: the four component arrays must exist and cover the output image */
++    if (image->component_count < 4) {
++        return CODEC_ERROR_UNSUPPORTED_FORMAT;
++    }
++    for (row = 0; row < 4; row++)
++    {
++        if (image->component_array_list[row].data == NULL ||
++            image->component_array_list[row].width < width ||
++            image->component_array_list[row].height < height) {
++            return CODEC_ERROR_IMAGE_DIMENSIONS;
++        }
++    }
++
+     GS_input_buffer = image->component_array_list[0].data;
+     RG_input_buffer = image->component_array_list[1].data;
+     BG_input_buffer = image->component_array_list[2].data;
+@@ -85,8 +98,9 @@ CODEC_ERROR PackComponentsToRAW(const UNPACKED_IMAGE *image,
+             RG -= midpoint;
+             BG -= midpoint;
+             
+-            R = (RG << 1) + GS;
+-            B = (BG << 1) + GS;
++            /* hardening: multiply instead of left shifting a negative value (same result) */
++            R = (RG * 2) + GS;
++            B = (BG * 2) + GS;
+             G1 = GS + GD;
+             G2 = GS - GD;
+             
+diff --git a/source/lib/vc5_decoder/vlc.c b/source/lib/vc5_decoder/vlc.c
+index 646fc59..7dbbc23 100755
+--- a/source/lib/vc5_decoder/vlc.c
++++ b/source/lib/vc5_decoder/vlc.c
+@@ -64,6 +64,11 @@ CODEC_ERROR GetRlv(BITSTREAM *stream, CODEBOOK *codebook, RUN *run)
+ 
+ found:
+ 
++	/* hardening: the codeword is not valid if it was read past the end of the bitstream */
++	if (stream->error != BITSTREAM_ERROR_OKAY) {
++		return CodecErrorBitstream(stream->error);
++	}
++
+ 	// Found a valid codeword in the bitstream
+ 	return CODEC_ERROR_OKAY;
+ }
+diff --git a/source/lib/vc5_decoder/wavelet.c b/source/lib/vc5_decoder/wavelet.c
+index a60eb0a..6ad076c 100755
+--- a/source/lib/vc5_decoder/wavelet.c
++++ b/source/lib/vc5_decoder/wavelet.c
+@@ -52,6 +52,14 @@ CODEC_ERROR TransformInverseSpatialQuantLowpass(gpr_allocator *allocator, WAVELE
+ 	// Check that the output image is a gray image or a lowpass wavelet band
+ 	assert(output->data[0] != NULL);
+ 
++	/* hardening: the inverse transform reads three rows and columns at each border of the input
++	   bands and writes 2n-1 or 2n output rows and columns */
++	if (input_width < 3 || input_height < 3 ||
++		output_width < 2 * input_width - 1 || output_width > 2 * input_width ||
++		output_height < 2 * input_height - 1 || output_height > 2 * input_height) {
++		return CODEC_ERROR_IMAGE_DIMENSIONS;
++	}
++
+ 	// Check for valid quantization values
+ 	if (input->quant[0] == 0) {
+ 		input->quant[0] = 1;
+@@ -68,7 +76,8 @@ CODEC_ERROR TransformInverseSpatialQuantLowpass(gpr_allocator *allocator, WAVELE
+ 		assert(prescale == 2);
+ 
+ 		// Apply the inverse spatial transform for a lowpass band that is not prescaled
+-		InvertSpatialQuantDescale16s(allocator,
++		/* hardening: return the result of the inverse transform */
++		return InvertSpatialQuantDescale16s(allocator,
+ 									 (PIXEL *)input->data[0], input->pitch,
+ 									 (PIXEL *)input->data[1], input->pitch,
+ 									 (PIXEL *)input->data[2], input->pitch,
+@@ -84,7 +93,8 @@ CODEC_ERROR TransformInverseSpatialQuantLowpass(gpr_allocator *allocator, WAVELE
+ 		assert(prescale == 0);
+ 
+ 		// Apply the inverse spatial transform for a lowpass band that is not prescaled
+-		InvertSpatialQuant16s(allocator,
++		/* hardening: return the result of the inverse transform */
++		return InvertSpatialQuant16s(allocator,
+ 							  (PIXEL *)input->data[0], input->pitch,
+ 							  (PIXEL *)input->data[1], input->pitch,
+ 							  (PIXEL *)input->data[2], input->pitch,
+@@ -136,13 +146,23 @@ CODEC_ERROR TransformInverseSpatialQuantArray(gpr_allocator *allocator,
+ 
+ 	assert(output_width > 0 && output_height > 0 && output_pitch > 0 && output_buffer != NULL);
+ 
++	/* hardening: the inverse transform reads three rows and columns at each border of the input
++	   bands and writes 2n-1 or 2n output rows and columns */
++	if (input_width < 3 || input_height < 3 || output_buffer == NULL ||
++		output_width < 2 * input_width - 1 || output_width > 2 * input_width ||
++		output_height < 2 * input_height - 1 || output_height > 2 * input_height ||
++		output_pitch < output_width * sizeof(PIXEL)) {
++		return CODEC_ERROR_IMAGE_DIMENSIONS;
++	}
++
+ 	if (prescale > 1)
+ 	{
+ 		// This is a spatial transform for the lowpass temporal band
+ 		assert(prescale == 2);
+ 
+ 		// Apply the inverse spatial transform for a lowpass band that is not prescaled
+-		InvertSpatialQuantDescale16s(allocator,
++		/* hardening: return the result of the inverse transform */
++		return InvertSpatialQuantDescale16s(allocator,
+ 									 (PIXEL *)input->data[0], input->pitch,
+ 									 (PIXEL *)input->data[1], input->pitch,
+ 									 (PIXEL *)input->data[2], input->pitch,
+@@ -158,7 +178,8 @@ CODEC_ERROR TransformInverseSpatialQuantArray(gpr_allocator *allocator,
+ 		assert(prescale == 0);
+ 
+ 		// Apply the inverse spatial transform for a lowpass band that is not prescaled
+-		InvertSpatialQuant16s(allocator,
++		/* hardening: return the result of the inverse transform */
++		return InvertSpatialQuant16s(allocator,
+ 							  (PIXEL *)input->data[0], input->pitch,
+ 							  (PIXEL *)input->data[1], input->pitch,
+ 							  (PIXEL *)input->data[2], input->pitch,

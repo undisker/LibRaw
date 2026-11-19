@@ -56,7 +56,7 @@ it under the terms of the one of two licenses as you choose:
 
    It is therefore OFF by default (CMake: LIBRAW_ENABLE_GPR, macro
    USE_GPR_VC5) and the default build reads GPR files with GoPro's own,
-   unmodified decoder instead (vc5_opensdk.cpp, USE_GPR_OPENSDK). If both
+   decoder instead (vc5_opensdk.cpp, USE_GPR_OPENSDK). If both
    macros are defined, GoPro's decoder is used and this one is not compiled.
    See LICENSING.md, section 3.
    --------------------------------------------------------------------------- */

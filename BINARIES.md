@@ -337,15 +337,16 @@ are noted in the host application's `installer/ATTRIBUTIONS.txt`.
   uncapped indemnity to Adobe on commercial distribution. Nothing the host application
   opens needs them.
 - GoPro `.GPR` (VC-5) is decoded by **GoPro's own open-source decoder**,
-  compiled in unmodified from a pinned commit of `gopro/gpr`
+  compiled in from a pinned commit of `gopro/gpr` with a bounds-checking patch
+  (`GoPro/gpr-vc5-hardening.patch`)
   (`LIBRAW_ENABLE_GPR_SDK`, ON; `libraw_capabilities()` bit 22). Only its
   `vc5_decoder`, `vc5_common` and `common` directories are used - not the
   Adobe DNG SDK copy in the same repository. GoPro holds patents on this kind
   of Bayer compression, the last running until April 2030, and its own code
   under its own Apache-2.0 licence is the conservative way to be covered.
-  **GoPro's decoder is not robust against hostile files** (heap overflow
-  writes on corrupted input) and is 5-8 times slower than the fork's;
-  `LICENSING.md` section 3 has the numbers and the ways out.
+  Unpatched, GoPro's decoder wrote past its buffers on damaged files; with the
+  patch, fuzzing found nothing (`LICENSING.md` section 3 has the numbers). It
+  is single-threaded and 5-8 times slower than the fork's decoder.
 - This fork's own decoder, `src/decoders/vc5.cpp` (`LIBRAW_ENABLE_GPR`, OFF;
   bit 21), is bit-identical, faster and hardened, but **requires legal
   clarification** before it is shipped.

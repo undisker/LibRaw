@@ -19,7 +19,7 @@ option(LIBRAW_ENABLE_X3FTOOLS "Enable Sigma X3F support" ON)
 option(LIBRAW_ENABLE_6BY9RPI "Enable Raspberry Pi camera support" ON)
 option(LIBRAW_ENABLE_JXL "Enable JPEG XL compressed DNG (needs libjxl)" ON)
 # GoPro GPR. Two decoders, see LICENSING.md section 3:
-#  - GoPro's own open-source VC-5 decoder, compiled in unmodified (default);
+#  - GoPro's own open-source VC-5 decoder with a bounds-checking patch (default);
 #  - this fork's rewrite, which REQUIRES LEGAL CLARIFICATION before shipping.
 option(LIBRAW_ENABLE_GPR_SDK "GoPro GPR through GoPro's open-source VC-5 decoder (sources from cmake/build-deps.cmake)" ON)
 option(LIBRAW_ENABLE_GPR "GoPro GPR through this fork's own VC-5 decoder - requires legal clarification, see LICENSING.md" OFF)

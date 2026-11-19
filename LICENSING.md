@@ -21,7 +21,7 @@ are the ones worth a lawyer's hour before a release.
 | Pieces of Adobe DNG SDK 1.4 | Adobe, as upstream uses them | MIT, per upstream's `COPYRIGHT` |
 | Checked arithmetic, OpenMP work, CMake build, C API additions, headerless camera entries, ARRIRAW reader, `packed_lsbfirst_load_raw` | written for this fork (see `git log upstream/master..`) | offered under LibRaw's two licences |
 | Sony lossless ARW tile decoder (`sony_ljpeg_load_raw_tiles`, `internal/losslessjpeg_lut.h`) | upstream pull request #886 by its author, not merged upstream when taken | LibRaw's two licences - upstream's `CONTRIBUTING.md`: "By submitting a patch or Pull Request, you explicitly agree that your contributed code can be distributed under both" |
-| GoPro GPR, default: GoPro's VC-5 decoder | `gopro/gpr` at a pinned commit, directories `vc5_decoder`, `vc5_common`, `common`, compiled in **unmodified**; called from `src/decoders/vc5_opensdk.cpp` (this fork's glue, no GoPro code in it) | GoPro code: Apache-2.0 **or** MIT. See section 3 |
+| GoPro GPR, default: GoPro's VC-5 decoder | `gopro/gpr` at a pinned commit, directories `vc5_decoder`, `vc5_common`, `common`, compiled in with a bounds-checking patch (`GoPro/gpr-vc5-hardening.patch`, changes marked); called from `src/decoders/vc5_opensdk.cpp` (this fork's glue, no GoPro code in it) | GoPro code: Apache-2.0 **or** MIT. See section 3 |
 | GoPro GPR, optional: this fork's decoder, `src/decoders/vc5.cpp` | rewritten for this fork from the same GoPro decoder; **requires legal clarification**, off by default | as above for the GoPro-derived parts. See section 3 |
 | JPEG XL DNG loader, `src/decoders/jxl_dng.cpp` | written for this fork; calls libjxl | LibRaw's two licences |
 
@@ -202,11 +202,11 @@ says nothing about patents. Apache-2.0 does give a patent licence, but for
 | CMake option | `LIBRAW_ENABLE_GPR_SDK`, **ON** | `LIBRAW_ENABLE_GPR`, OFF |
 | Macro | `USE_GPR_OPENSDK` | `USE_GPR_VC5` |
 | `libraw_capabilities()` | bit 22 | bit 21 |
-| Code | GoPro's files, unmodified | `vc5.cpp`, a rewrite |
+| Code | GoPro's files with a bounds-checking patch | `vc5.cpp`, a rewrite |
 | Patent position | the use Apache-2.0 section 3 is written for | **requires legal clarification** |
 | Output | identical on all 17 corpus files | identical |
 | Speed, 4000x3000, 4 cores | about 390 ms | about 50 ms |
-| Hostile input | **memory errors, see below** | none found in 7280 corrupted files |
+| Hostile input | hardened by a patch, see below | none found in 7280 corrupted files |
 
 If both options are on, GoPro's decoder is the one compiled in.
 
@@ -215,11 +215,11 @@ GoPro's `gpr_read_image.cpp` and needs the Adobe DNG SDK. Neither is used
 here; the copy of the Adobe DNG SDK that sits in GoPro's repository is not
 compiled.
 
-### Robustness of GoPro's decoder - read before shipping
+### Robustness of GoPro's decoder, and the hardening patch
 
 GoPro's decoder trusts its input. 687 corrupted copies of three small GPR
-files, run through it under AddressSanitizer and UBSan (November 2026, commit
-`446c736`):
+files, run through the unpatched decoder under AddressSanitizer and UBSan
+(November 2026, commit `446c736`):
 
 | Result | Runs |
 |---|---|
@@ -229,34 +229,56 @@ files, run through it under AddressSanitizer and UBSan (November 2026, commit
 | stack use after return in `AllocateChannelWavelets` (decoder.c) | 1 |
 | memory leaked on an error path (up to about 2 MB per file) | 355 |
 
-A valid file also triggers undefined behaviour of the harmless kind (left
+A valid file also triggered undefined behaviour of the harmless kind (left
 shift of a negative value in raw.c). GoPro's issue tracker has had a report of
 a crash on a malformed file open since January 2022.
 
-The glue checks what it can without GoPro's code - stream size against the DNG
-size, memory budget, zero padding after the stream so that a read past its end
-stays in the buffer - but it cannot stop the write overflow, which happens
-inside the entropy decoder. **For a product that opens files of unknown origin
-this is a real exposure**, and it is the price of the cleaner patent position.
-Ways to reduce it, none implemented yet:
+The build therefore compiles GoPro's files with one patch,
+`GoPro/gpr-vc5-hardening.patch` (11 files, 233 lines added, 28 changed), which
+`cmake/build-deps.cmake` applies to the pinned commit. CMake warns if it finds
+an unpatched checkout. The patch only adds checks - array indices, end of
+stream, chunk lengths, band and image sizes, repeated bands and headers,
+allocation results - that return GoPro's existing error codes, and replaces
+left shifts of negative values with multiplications. Every change carries a
+`hardening:` comment, and the patch file states that it modifies GoPro's
+files, as Apache-2.0 section 4(b) asks.
 
-1. Validate the stream first with this fork's bounded parser (structure and
-   entropy coding, no image reconstruction) and hand GoPro's decoder only
-   streams that pass. Fast, and it stops the overflows found; but it runs part
-   of the rewrite, which brings a weaker form of the patent question back.
-2. Carry a small hardening patch for GoPro's files (bounds checks at the four
-   places above, frees on the error paths). Apache-2.0 allows modification;
-   the code is then GoPro's with a patch rather than "unmodified".
-3. Report the problems upstream and wait - the repository gets a commit a
-   year.
-4. Ship without GPR support (`-DLIBRAW_ENABLE_GPR_SDK=OFF`).
+The glue adds a second line of defence that needs no change to GoPro's code:
+every allocation of the decoder goes through a ledger that frees whatever is
+left when it stops on an error and caps the total at `max_raw_memory_mb`; the
+stream size is checked against the DNG; the stream is zero-padded.
+
+Verification (November 2026):
+
+- **Valid files unchanged.** The 17 corpus GPR files decode to the same
+  `raw_image` as this fork's own decoder, which is bit-identical to GoPro's
+  reference tool. On 75 synthetic files from 32x32 to 4000x3000 the output is
+  unchanged except for the four 32x32 files, which are now rejected: below
+  about 34x34 the smallest wavelet band is under 3x3 pixels, and the inverse
+  transform read outside its buffers there.
+- **The findings above are gone.** The four reproducers and the same 687
+  corrupted files, through LibRaw under ASan, UBSan and leak detection: no
+  report of any kind.
+- **Wider fuzzing**, on GoPro's decoder alone with the same calling
+  conventions as LibRaw: 23,280 inputs per final pass under ASan+UBSan, from
+  32 small synthetic files, 6 mid-size, 4 large and 3 real ones, mutated by
+  truncation, bit flips, byte runs, zero/0xFF blocks and structure-aware
+  changes to the VC-5 tag stream (channel and subband numbers, sizes, chunk
+  lengths, duplicated, dropped, reordered and spliced codeblocks); a further
+  9,600 under ASan and a MemorySanitizer pass; and 3.09 million executions of
+  coverage-guided fuzzing (libFuzzer, 15 minutes). No sanitizer report, crash
+  or hang in the final passes; the slowest input took 0.27 s under ASan.
+
+What this does not prove: fuzzing finds what it reaches, and the patch covers
+the decoding path LibRaw uses (`vc5_decoder_process` producing raw Bayer data,
+no RGB output). The patch has not been offered to GoPro.
 
 ### What that means
 
 There is a real patent question; the last patent runs to April 2030, and it
 is the same for every way of decoding GPR. The default build answers it the
 conservative way - GoPro's own code under GoPro's own licence - and pays for
-that in speed and in robustness against hostile files. The fork's faster,
+that in speed and in a patch to maintain. The fork's faster,
 hardened decoder is there for the day the patent question is answered:
 
 1. Ask GoPro in writing whether a decoder derived from `gopro/gpr` under
@@ -292,7 +314,7 @@ repeated here from general knowledge, not from a document read for this file.
 - [ ] GPR decided: GoPro's decoder (default), none, or - only after legal
       clarification - this fork's. With either decoder, GoPro's copyright
       notice and the Apache-2.0 text are in the attribution list.
-- [ ] If GoPro's decoder ships: the robustness note in section 3 has been
-      read and one of its mitigations chosen.
+- [ ] If GoPro's decoder ships: CMake reported it as "hardened" (the patch
+      in `GoPro/gpr-vc5-hardening.patch` is applied).
 - [ ] No Adobe DNG SDK, GoPro GPR SDK or RawSpeed in the build
       (`libraw_capabilities()` bits 0, 1, 2, 8 are clear).

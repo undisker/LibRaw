@@ -1,5 +1,6 @@
 NOTE FOR THIS FORK (undisker): GoPro .GPR files are decoded with the VC-5
-decoder of GoPro's SDK alone (vc5_decoder, vc5_common), compiled in by
+decoder of GoPro's SDK alone (vc5_decoder, vc5_common, with the bounds-checking
+GoPro/gpr-vc5-hardening.patch), compiled in by
 LIBRAW_ENABLE_GPR_SDK (default; src/decoders/vc5_opensdk.cpp), or with this
 fork's own decoder (LIBRAW_ENABLE_GPR, off: requires legal clarification).
 The Adobe DNG SDK is not needed for either. See LICENSING.md. The text below describes upstream's

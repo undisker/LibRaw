@@ -21,8 +21,8 @@ messages for how each layout was established.
   40 wavelet bands decode in parallel (4000x3000 in about 60 ms on 4 cores). **It
   requires legal clarification (patents) and is OFF by default**
   (`LIBRAW_ENABLE_GPR`). The default build decodes GPR with GoPro's own open-source
-  VC-5 decoder instead, compiled in unmodified (`LIBRAW_ENABLE_GPR_SDK`): same output,
-  slower, and not robust against hostile files - see [LICENSING.md](LICENSING.md).
+  VC-5 decoder instead (`LIBRAW_ENABLE_GPR_SDK`), with a bounds-checking patch for
+  damaged files: same output, slower - see [LICENSING.md](LICENSING.md).
 - **DNG with JPEG XL compression** (DNG 1.7; Samsung Expert RAW): through libjxl,
   `LIBRAW_ENABLE_JXL`, without the Adobe DNG SDK.
 - **ARRIRAW** `.ari` (header version 3).
