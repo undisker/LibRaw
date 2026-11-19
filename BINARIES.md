@@ -107,7 +107,7 @@ generators otherwise compile at `-O0`), and `LIBRAW_ENABLE_OPENMP` defaults to
 
 ## 2. The ABI contract with the host application
 
-the host application's loader resolves these by name with `GetProcedureAddress` and
+The host application's loader resolves these by name with `GetProcedureAddress` and
 degrades gracefully if any are missing — which means a mismatched build shows
 up as "RAW files do not open" rather than a crash. All are `cdecl`.
 
