@@ -173,6 +173,8 @@ extern "C"
      frame, the visible area and its top/left margins; levels are the black /
      maximum and the per-channel black plane; cam_mul is the camera WB. */
   DllDef unsigned short *libraw_undisker_raw_image(libraw_data_t *lr);
+  DllDef const unsigned char *libraw_undisker_nikon_block(libraw_data_t *lr, int which,
+                                                          unsigned *len);
   DllDef void libraw_undisker_raw_geometry(libraw_data_t *lr, int *raw_w,
                                            int *raw_h, int *vis_w, int *vis_h,
                                            int *top, int *left);
@@ -367,7 +369,18 @@ public:
 
   void set_dng_host(void *);
 
+  /* undisker patch: the Nikon MakerNote blocks ShotInfo (0), LensData (1)
+     and ColorBalance (2), as this library deciphered them while parsing
+     the file - NULL when the file had none or it was not deciphered.
+     LensData without its 4-byte version; ColorBalance the 324 bytes the
+     white balance is read from. Valid until recycle(). */
+  const unsigned char *undisker_nikon_block(int which, unsigned *len);
+
 protected:
+  unsigned char *undisker_nikon_blk[3];
+  unsigned undisker_nikon_len[3];
+  void undisker_keep_nikon_block(int which, const unsigned char *data, unsigned len);
+
   static void *memmem(char *haystack, size_t haystacklen, char *needle,
                       size_t needlelen);
   static char *strcasestr(char *h, const char *n);

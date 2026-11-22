@@ -851,6 +851,7 @@ ck_block = (uchar *)malloc(ShotInfo_len);
       {
         for (i = 0; i < 324; i++)
           ColorBalanceData_buf[i] ^= (cj += ci * ck++);
+        undisker_keep_nikon_block(2, ColorBalanceData_buf, 324);
         i = "66666>666;6A;:;555"[imNikon.ColorBalanceVersion - 200] - '0';
         FORC4 cam_mul[c ^ (c >> 1) ^ (i & 1)] =
             sget2(ColorBalanceData_buf + (i & -2) + c * 2);
@@ -867,6 +868,7 @@ ck_block = (uchar *)malloc(ShotInfo_len);
             LensData_buf[i] ^= (cj += ci * ck++);
           }
         }
+        undisker_keep_nikon_block(1, LensData_buf, LensData_len);
         processNikonLensData(LensData_buf, LensData_len);
         LensData_len = 0;
         free(LensData_buf);
@@ -885,6 +887,7 @@ cj_block[i-4] = cj;
 ck_block[i-4] = ck-1;
 */
         }
+        undisker_keep_nikon_block(0, ShotInfo_buf, ShotInfo_len);
 /* for dump:
 printf ("==>> ci: 0x%02x, cj at start: 0x%02x\n",
 ci, xlat[1][imNikon.key]);

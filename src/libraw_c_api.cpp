@@ -421,6 +421,22 @@ extern "C"
     return lr->sizes.raw_height;
   }
 
+  /* undisker patch: a Nikon MakerNote block as deciphered while parsing -
+     which: 0 ShotInfo, 1 LensData (without its version), 2 ColorBalance
+     (the 324 white-balance bytes). NULL (and *len = 0) when absent. The
+     buffer belongs to the library and is valid until libraw_recycle or
+     libraw_close. */
+  DllDef const unsigned char *libraw_undisker_nikon_block(libraw_data_t *lr, int which,
+                                                          unsigned *len)
+  {
+    if (len)
+      *len = 0;
+    if (!lr)
+      return NULL;
+    LibRaw *ip = (LibRaw *)lr->parent_class;
+    return ip->undisker_nikon_block(which, len);
+  }
+
   /* undisker patch: direct CFA access for the external develop pipeline */
   DllDef unsigned short *libraw_undisker_raw_image(libraw_data_t *lr)
   {

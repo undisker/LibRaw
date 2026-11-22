@@ -103,6 +103,11 @@ LibRaw::LibRaw(unsigned int flags, unsigned cabi) : memmgr(1024), _caller_abi_pa
   _exitflag = 0;
   tls = new LibRaw_TLS;
   tls->init();
+  for (int k = 0; k < 3; k++)
+  {
+    undisker_nikon_blk[k] = NULL;
+    undisker_nikon_len[k] = 0;
+  }
 }
 
 LibRaw::~LibRaw()
@@ -126,9 +131,42 @@ LibRaw::~LibRaw()
 
 void x3f_clear(void *);
 
+/* undisker patch: keep a copy of a deciphered Nikon MakerNote block */
+void LibRaw::undisker_keep_nikon_block(int which, const unsigned char *data, unsigned len)
+{
+  if (which < 0 || which > 2 || !data || !len || len > 1024 * 1024)
+    return;
+  free(undisker_nikon_blk[which]);
+  undisker_nikon_blk[which] = (unsigned char *)malloc(len);
+  if (!undisker_nikon_blk[which])
+  {
+    undisker_nikon_len[which] = 0;
+    return;
+  }
+  memcpy(undisker_nikon_blk[which], data, len);
+  undisker_nikon_len[which] = len;
+}
+
+const unsigned char *LibRaw::undisker_nikon_block(int which, unsigned *len)
+{
+  if (len)
+    *len = 0;
+  if (which < 0 || which > 2 || !undisker_nikon_blk[which])
+    return NULL;
+  if (len)
+    *len = undisker_nikon_len[which];
+  return undisker_nikon_blk[which];
+}
+
 void LibRaw::recycle()
 {
   recycle_datastream();
+  for (int k = 0; k < 3; k++)
+  {
+    free(undisker_nikon_blk[k]);
+    undisker_nikon_blk[k] = NULL;
+    undisker_nikon_len[k] = 0;
+  }
 #define FREE(a)                                                                \
   do                                                                           \
   {                                                                            \
