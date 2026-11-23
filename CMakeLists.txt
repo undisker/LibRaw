@@ -175,6 +175,12 @@ set_target_properties(raw PROPERTIES
     PUBLIC_HEADER "${LIBRAW_HEADERS}"
 )
 
+# MinGW-w64 would name the DLL libraw.dll; the host application loads raw.dll,
+# the name an MSVC build produces (BINARIES.md section 2).
+if(MINGW)
+    set_target_properties(raw PROPERTIES PREFIX "")
+endif()
+
 # Windows-specific settings
 if(WIN32)
     target_compile_definitions(raw PRIVATE
@@ -499,6 +505,11 @@ if(BUILD_SAMPLES)
     add_executable(mem_image_sample samples/mem_image_sample.cpp)
     target_link_libraries(mem_image_sample PRIVATE raw)
     target_include_directories(mem_image_sample PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+    if(WIN32)
+        # htons(); MSVC picks ws2_32 up from the sample's #pragma comment(lib),
+        # which MinGW-w64 ignores.
+        target_link_libraries(mem_image_sample PRIVATE ws2_32)
+    endif()
 
     # 4 channels sample
     add_executable(4channels samples/4channels.cpp)

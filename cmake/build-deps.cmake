@@ -1,6 +1,6 @@
 # Build LibRaw's optional dependencies from pinned sources into one prefix.
 #
-#   cmake [-DPREFIX=<dir>] [-DOSX_ARCHS=<archs>] [-DJOBS=<n>] -P cmake/build-deps.cmake
+#   cmake [-DPREFIX=<dir>] [-DOSX_ARCHS=<archs>] [-DJOBS=<n>] [-DTOOLCHAIN=<file>] -P cmake/build-deps.cmake
 #   cmake -S . -B build -DCMAKE_PREFIX_PATH=<dir> -DLIBRAW_ENABLE_ZLIB=ON -DLIBRAW_ENABLE_JPEG=ON
 #
 # Run with `cmake -P`, so the same one command works on Windows, macOS and
@@ -17,6 +17,11 @@
 #     `z_errmsg` can not be used when making a shared object"). Everything
 #     built here is position-independent.
 #   * Windows. There is no system copy to find.
+#
+# TOOLCHAIN is an absolute path to a CMake toolchain file, for a cross build:
+# cmake/mingw-w64-x86_64.cmake builds Windows x64 DLLs with MinGW-w64, named
+# as an MSVC build names them (cmake/mingw-dll-names.cmake). Pass the same
+# file to the LibRaw build.
 #
 # Both are built SHARED on purpose. Separate libraries keep a CVE in either one
 # a single-file replacement rather than a LibRaw rebuild, and let the
@@ -74,6 +79,10 @@ function(build_dep aName aSrc)
     set(iArgs ${ARGN})
     if(OSX_ARCHS)
         list(APPEND iArgs "-DCMAKE_OSX_ARCHITECTURES=${OSX_ARCHS}")
+    endif()
+    if(TOOLCHAIN)
+        list(APPEND iArgs "-DCMAKE_TOOLCHAIN_FILE=${TOOLCHAIN}"
+             "-DCMAKE_PROJECT_INCLUDE=${CMAKE_CURRENT_LIST_DIR}/mingw-dll-names.cmake")
     endif()
     message(STATUS "build-deps: building ${aName}")
     execute_process(

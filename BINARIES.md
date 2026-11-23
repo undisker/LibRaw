@@ -236,6 +236,54 @@ payload; `installer/stage.py` in the host application's repository lists them in
 `WINDOWS_VCRUNTIME` and fails the build if any is missing, because without them
 `raw.dll` fails to load and RAW support vanishes with no error message.
 
+### Windows with MinGW-w64 (cross-build from Linux)
+
+An alternative to MSVC when no Windows machine is at hand: the same sources,
+flags and pinned dependencies, built with GCC from MinGW-w64. **It is not what
+`release.yml` ships**; the MSVC build above stays the release recipe.
+
+```sh
+sudo apt-get install g++-mingw-w64-x86-64-posix nasm   # Debian/Ubuntu
+cmake -DPREFIX="$PWD/deps-win64" -DTOOLCHAIN="$PWD/cmake/mingw-w64-x86_64.cmake" \
+      -DJOBS=4 -P cmake/build-deps.cmake
+cmake -S . -B build-win64 -DCMAKE_TOOLCHAIN_FILE=cmake/mingw-w64-x86_64.cmake \
+  -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON \
+  -DBUILD_SAMPLES=ON -DBUILD_TESTS=ON \
+  -DCMAKE_PREFIX_PATH="$PWD/deps-win64" \
+  -DLIBRAW_ENABLE_ZLIB=ON -DLIBRAW_ENABLE_JPEG=ON \
+  -DLIBRAW_ENABLE_LCMS2=OFF -DLIBRAW_ENABLE_JASPER=OFF
+cmake --build build-win64 -j"$(nproc)"
+```
+
+Output: `build-win64/bin/raw.dll`, plus `deps-win64/bin/zlib1.dll` and
+`deps-win64/bin/jpeg62.dll`. How it differs from the MSVC build:
+
+- **Names.** MinGW would produce `libraw.dll`, `libzlib1.dll` and
+  `libjpeg-62.dll`. `CMakeLists.txt` drops the `lib` prefix from `raw`, and
+  `cmake/mingw-dll-names.cmake` (injected by `build-deps.cmake` when
+  `TOOLCHAIN` is set) names the dependencies as MSVC does. They are named at
+  build time because `raw.dll` records the name it was linked against;
+  renaming the files afterwards breaks the import.
+- **Runtime linked in, not imported.** `cmake/mingw-w64-x86_64.cmake` links
+  libgcc, libstdc++, libgomp (GCC's OpenMP runtime) and winpthreads (the POSIX
+  threads libgomp is written against) statically into every DLL and EXE. The
+  binaries import only `KERNEL32`, `msvcrt`, `WS2_32` and each other - no
+  `libgomp-1.dll`, `libwinpthread-1.dll`, `libstdc++-6.dll`, and no VC++
+  redistributable or `vcomp140.dll` either. Check it with
+  `x86_64-w64-mingw32-objdump -p raw.dll | grep "DLL Name"`; the host
+  application's `installer/stage.py` refuses a payload where a binary imports
+  a MinGW runtime DLL that is not staged.
+- **Licences of what is linked in.** libgcc, libstdc++ and libgomp: GPL-3.0
+  with the GCC Runtime Library Exception (no conditions on the combined
+  binary). winpthreads: MIT (expat), two headers under the 3-clause BSD
+  licence of Lockless Inc. - its notice must be in the shipping application's
+  third-party notices, for `raw.dll` and `jpeg62.dll` alike.
+- **OpenMP** is GCC's (OpenMP 4.5+), so the OpenMP 2.0 constraints above are
+  not needed here - but keep the code within them for the MSVC build.
+- **Not run in the cloud.** Wine was not usable where this recipe was first
+  written, so the tests were built but not run; run `ctest` (or the test
+  executables) on Windows before shipping such a build.
+
 ---
 
 ## 4. Optional dependencies — what each one actually buys
@@ -392,7 +440,8 @@ After merging:
 - [ ] Every symbol in section 2 present in the built binary.
 - [ ] Correct file name (`raw.dll` / `libraw.dylib` / `libraw.so`), real file
       rather than a symlink, `RPATH=$ORIGIN` / `@rpath` applied.
-- [ ] Windows: VC++ runtime DLLs staged alongside.
+- [ ] Windows: VC++ runtime DLLs staged alongside (MSVC build), or no
+      MinGW runtime DLL imported by any binary (MinGW-w64 build).
 - [ ] `libraw_version()` reports `…-patched-undisker`.
 - [ ] `installer/ATTRIBUTIONS.txt` in the host application lists LibRaw and every
       dependency actually linked into this build.
